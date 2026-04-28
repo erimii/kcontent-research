@@ -300,15 +300,78 @@ body {
 .data-table tr:last-child td { border-bottom: none; }
 .data-table tr:hover td { background: rgba(255,255,255,0.02); }
 
-/* Reddit post items */
+/* Reddit post items (대시보드 요약용) */
 .reddit-post {
   padding: 12px 0;
   border-bottom: 1px solid rgba(255,255,255,0.04);
 }
-
 .reddit-post:last-child { border-bottom: none; }
-.reddit-title { font-size: 13px; font-weight: 500; margin-bottom: 4px; }
-.reddit-meta { font-size: 11px; color: var(--text-muted); display: flex; gap: 12px; align-items: center; }
+
+/* 클릭 가능한 제목 링크 */
+.reddit-title-link {
+  font-size: 13px; font-weight: 500;
+  color: var(--text-primary);
+  text-decoration: none;
+  display: inline-flex; align-items: center;
+  transition: color 0.15s;
+  line-height: 1.4;
+}
+.reddit-title-link:hover { color: #ff6534; text-decoration: underline; }
+
+.reddit-meta { font-size: 11px; color: var(--text-muted); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+
+/* Reddit 전용 페이지 - 포스트 행 */
+.reddit-post-row {
+  display: flex; align-items: flex-start; gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.reddit-post-row:last-child { border-bottom: none; }
+.reddit-post-row:hover { background: rgba(255,101,52,0.04); }
+
+.reddit-post-rank {
+  font-size: 13px; font-weight: 700;
+  color: var(--text-muted);
+  min-width: 24px; text-align: right;
+  padding-top: 2px; flex-shrink: 0;
+}
+
+.reddit-post-body { flex: 1; min-width: 0; }
+
+.reddit-post-title {
+  font-size: 14px; font-weight: 500;
+  color: var(--text-primary);
+  text-decoration: none;
+  display: inline;
+  line-height: 1.45;
+  transition: color 0.15s;
+}
+.reddit-post-title:hover { color: #ff6534; }
+
+.reddit-post-meta {
+  display: flex; gap: 12px; flex-wrap: wrap;
+  align-items: center; margin-top: 6px;
+  font-size: 11px; color: var(--text-muted);
+}
+
+.reddit-sub-link {
+  color: #ff6534; text-decoration: none; font-weight: 600;
+}
+.reddit-sub-link:hover { text-decoration: underline; }
+
+/* 댓글 미리보기 */
+.reddit-comments-preview {
+  margin-top: 8px; display: flex; flex-direction: column; gap: 4px;
+}
+.reddit-comment-chip {
+  font-size: 11px; color: var(--text-muted);
+  background: rgba(255,255,255,0.03);
+  border-left: 2px solid rgba(255,101,52,0.3);
+  padding: 4px 8px; border-radius: 0 4px 4px 0;
+  line-height: 1.4;
+}
 
 /* Score bar */
 .score-bar-wrap { display: flex; align-items: center; gap: 8px; }

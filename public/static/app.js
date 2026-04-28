@@ -301,12 +301,18 @@ function renderDashboard() {
           </div>
           ${r.redditSummary.hotPosts?.length ? `
           <div style="margin-top:16px;border-top:1px solid rgba(255,255,255,0.06);padding-top:14px">
-            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:10px">🔥 인기 포스트</div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+              <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;font-weight:600">🔥 인기 포스트</div>
+              <button class="btn btn-outline" style="padding:3px 10px;font-size:11px" onclick="navigateTo('reddit')">전체 보기 →</button>
+            </div>
             ${(r.redditSummary.hotPosts || []).slice(0,3).map(p => `
               <div class="reddit-post">
-                <div class="reddit-title">${escHtml(p.title)}</div>
+                <a class="reddit-title-link" href="${p.url}" target="_blank" rel="noopener noreferrer">
+                  ${escHtml(p.title)}
+                  <i class="fas fa-external-link-alt" style="font-size:10px;margin-left:5px;opacity:0.5"></i>
+                </a>
                 <div class="reddit-meta">
-                  <span style="color:#ff6534">r/${p.subreddit}</span>
+                  <a href="https://reddit.com/r/${p.subreddit}" target="_blank" rel="noopener noreferrer" style="color:#ff6534;text-decoration:none">r/${p.subreddit}</a>
                   <span>▲ ${p.score}</span>
                   <span>💬 ${p.commentCount}</span>
                   <span>${timeAgo(p.createdAt)}</span>
@@ -318,6 +324,133 @@ function renderDashboard() {
       </div>` : ''}
 
     </div>`
+}
+
+// ============================================================
+// Page: Reddit
+// ============================================================
+function renderReddit() {
+  const r = state.currentReport
+  if (!r || !r.redditSummary) return `
+    <div class="page-header">
+      <div><div class="page-title"><i class="fab fa-reddit" style="color:#ff6534"></i> Reddit 포스트</div>
+      <div class="page-sub">수집된 Reddit 포스트 목록</div></div>
+    </div>
+    <div style="padding:28px">${renderNoReport()}</div>`
+
+  const posts = r.redditSummary.hotPosts || []
+  // rawItems에서 Reddit 소스 전체 포스트 URL 맵 구성
+  const urlMap = {}
+  for (const cluster of (r.topContents || [])) {
+    for (const item of (cluster.rawItems || [])) {
+      if (item.source === 'reddit' && item.metadata?.url) {
+        urlMap[item.rawTitle] = {
+          url: item.metadata.url,
+          subreddit: item.metadata.subreddit,
+          originalTitle: item.metadata.originalTitle || item.rawTitle,
+        }
+      }
+    }
+  }
+
+  const activeTab = window._redditTab || 'hot'
+  const subreddits = ['전체', 'kdramas', 'kdrama', 'kdramarecommends', 'korean', 'koreatravel']
+  const activeSub  = window._redditSub || '전체'
+
+  let displayPosts = posts
+  if (activeSub !== '전체') displayPosts = displayPosts.filter(p => p.subreddit === activeSub)
+
+  return `
+    <div class="page-header">
+      <div>
+        <div class="page-title"><i class="fab fa-reddit" style="color:#ff6534"></i> Reddit 포스트</div>
+        <div class="page-sub">수집된 Reddit 포스트 · ${posts.length}개 (클릭하면 원문으로 이동)</div>
+      </div>
+      <button class="btn btn-outline" onclick="navigateTo('crawl')">
+        <i class="fas fa-sync-alt"></i> 새로 수집
+      </button>
+    </div>
+    <div style="padding:20px 28px;display:flex;flex-direction:column;gap:16px">
+
+      <!-- 필터 바 -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <div class="tabs" style="width:fit-content">
+          ${subreddits.map(sub => `
+            <button class="tab-btn ${activeSub === sub ? 'active' : ''}" onclick="setRedditSub('${sub}')">${sub === '전체' ? '전체' : 'r/' + sub}</button>
+          `).join('')}
+        </div>
+        <span style="font-size:12px;color:var(--text-muted)">${displayPosts.length}개</span>
+      </div>
+
+      <!-- 포스트 목록 -->
+      <div class="card">
+        <div class="card-body" style="padding:0">
+          ${displayPosts.length === 0
+            ? '<div class="empty-state"><i class="fab fa-reddit"></i><p>포스트 없음</p></div>'
+            : displayPosts.map((p, i) => `
+              <div class="reddit-post-row" onclick="window.open('${p.url}', '_blank')">
+                <div class="reddit-post-rank">${i + 1}</div>
+                <div class="reddit-post-body">
+                  <a class="reddit-post-title" href="${p.url}" target="_blank" rel="noopener noreferrer"
+                    onclick="event.stopPropagation()">
+                    ${escHtml(p.title)}
+                    <i class="fas fa-external-link-alt" style="font-size:10px;margin-left:6px;opacity:0.4"></i>
+                  </a>
+                  <div class="reddit-post-meta">
+                    <a href="https://reddit.com/r/${p.subreddit}" target="_blank" rel="noopener noreferrer"
+                      onclick="event.stopPropagation()" class="reddit-sub-link">r/${p.subreddit}</a>
+                    <span><i class="fas fa-arrow-up" style="font-size:10px"></i> ${p.score.toLocaleString()}</span>
+                    <span><i class="fas fa-comment" style="font-size:10px"></i> ${p.commentCount}</span>
+                    <span>${timeAgo(p.createdAt)}</span>
+                    ${p.flair ? `<span class="badge badge-new">${escHtml(p.flair)}</span>` : ''}
+                  </div>
+                  ${p.comments?.length ? `
+                  <div class="reddit-comments-preview">
+                    ${p.comments.slice(0,2).map(c => `
+                      <div class="reddit-comment-chip">
+                        <i class="fas fa-quote-left" style="font-size:9px;opacity:0.4;margin-right:4px"></i>
+                        ${escHtml(c.body?.slice(0, 120))}${c.body?.length > 120 ? '...' : ''}
+                      </div>`).join('')}
+                  </div>` : ''}
+                </div>
+              </div>`).join('')
+          }
+        </div>
+      </div>
+
+      <!-- 클러스터에서 추출한 Reddit 연결 항목 -->
+      ${Object.keys(urlMap).length > 0 ? `
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="fas fa-link"></i> 랭킹에 반영된 Reddit 포스트</div>
+          <span style="font-size:11px;color:var(--text-muted)">${Object.keys(urlMap).length}개</span>
+        </div>
+        <div class="card-body" style="padding:0">
+          <table class="data-table">
+            <thead><tr><th>제목</th><th>서브레딧</th><th>링크</th></tr></thead>
+            <tbody>
+              ${Object.entries(urlMap).map(([title, info]) => `
+                <tr style="cursor:pointer" onclick="window.open('${info.url}', '_blank')">
+                  <td style="font-size:13px">${escHtml(info.originalTitle)}</td>
+                  <td><a href="https://reddit.com/r/${info.subreddit}" target="_blank" onclick="event.stopPropagation()" style="color:#ff6534;text-decoration:none">r/${info.subreddit}</a></td>
+                  <td>
+                    <a href="${info.url}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()"
+                      class="btn btn-outline" style="padding:3px 10px;font-size:11px">
+                      <i class="fas fa-external-link-alt"></i> 원문 보기
+                    </a>
+                  </td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>` : ''}
+
+    </div>`
+}
+
+function setRedditSub(sub) {
+  window._redditSub = sub
+  renderPage()
 }
 
 // ============================================================
@@ -374,7 +507,10 @@ function renderRanking() {
                   <td>
                     <div style="font-size:13px;font-weight:500">${escHtml(c.representativeTitle)}</div>
                     ${c.aliases?.length ? `<div style="font-size:11px;color:var(--text-muted)">별칭: ${c.aliases.slice(0,2).join(', ')}</div>` : ''}
-                    ${c.isKContent ? '<span class="badge badge-k" style="margin-top:3px">K</span>' : ''}
+                    <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">
+                      ${c.isKContent ? '<span class="badge badge-k">K</span>' : ''}
+                      ${renderRedditSourceLinks(c.rawItems)}
+                    </div>
                   </td>
                   <td>${contentTypeBadge(c.contentType) || '<span style="color:var(--text-muted)">-</span>'}</td>
                   <td>
@@ -643,6 +779,21 @@ function renderLogTable(logs) {
     </table>`
 }
 
+function renderRedditSourceLinks(rawItems) {
+  if (!rawItems?.length) return ''
+  const redditItems = rawItems.filter(i => i.source === 'reddit' && i.metadata?.url)
+  if (!redditItems.length) return ''
+  return redditItems.map(i => `
+    <a href="${i.metadata.url}" target="_blank" rel="noopener noreferrer"
+      title="${escHtml(i.metadata.originalTitle || i.rawTitle)}"
+      style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#ff6534;text-decoration:none;margin-right:6px"
+      onclick="event.stopPropagation()">
+      <i class="fab fa-reddit"></i>
+      r/${i.metadata.subreddit}
+      <i class="fas fa-external-link-alt" style="font-size:9px;opacity:0.5"></i>
+    </a>`).join('')
+}
+
 function renderNoReport() {
   return `
     <div style="padding:28px">
@@ -666,6 +817,7 @@ function navigateTo(page) {
   if (page === 'crawl')    setTimeout(loadLogs, 100)
   if (page === 'history')  setTimeout(loadHistory, 100)
   if (page === 'schedule') setTimeout(loadSchedule, 100)
+  if (page === 'reddit')   { window._redditSub = '전체'; renderPage() }
 }
 
 function setRankTab(tab) {
@@ -967,9 +1119,11 @@ function clearSearch() {
 // Sidebar
 // ============================================================
 function renderSidebar() {
+  const redditCount = state.currentReport?.redditSummary?.hotPosts?.length || 0
   const nav = [
     ['dashboard', 'fas fa-chart-pie',    '대시보드'],
     ['ranking',   'fas fa-trophy',        '콘텐츠 랭킹'],
+    ['reddit',    'fab fa-reddit',        `Reddit 포스트${redditCount ? ` <span style="background:#ff653422;color:#ff6534;border-radius:10px;padding:1px 6px;font-size:10px">${redditCount}</span>` : ''}`],
     ['crawl',     'fas fa-spider',        '크롤링'],
     ['schedule',  'fas fa-clock',         '스케줄'],
     ['history',   'fas fa-folder-open',   '아카이브'],
@@ -1008,6 +1162,7 @@ function renderPage() {
   const pages = {
     dashboard: renderDashboard,
     ranking:   renderRanking,
+    reddit:    renderReddit,
     crawl:     renderCrawl,
     history:   renderHistory,
     search:    renderSearch,
