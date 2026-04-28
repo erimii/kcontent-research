@@ -7,3 +7,5 @@ dist-crawler/
 .dev.vars
 *.bak
 *.tar.gz
+data/
+logs/
