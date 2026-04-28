@@ -1,0 +1,12 @@
+{
+  "version": "v1",
+  "entries": [
+    {
+      "idx": 1,
+      "version": "v1",
+      "when": 1714300000000,
+      "tag": "0001_initial",
+      "breakpoints": true
+    }
+  ]
+}

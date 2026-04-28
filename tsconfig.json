@@ -1,15 +1,15 @@
 {
   "compilerOptions": {
-    "target": "ESNext",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
     "strict": true,
-    "skipLibCheck": true,
-    "lib": [
-      "ESNext"
-    ],
-    "types": ["vite/client"],
     "jsx": "react-jsx",
-    "jsxImportSource": "hono/jsx"
+    "jsxImportSource": "hono/jsx",
+    "lib": ["ES2022"],
+    "types": ["@cloudflare/workers-types"],
+    "paths": {}
   },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
 }

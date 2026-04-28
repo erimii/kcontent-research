@@ -29,6 +29,29 @@ const PLATFORM_WEIGHT: Record<string, number> = {
 }
 
 // ============================================================
+// 제목 길이/복잡도 기반 콘텐츠 신호 점수 (RSS에서 upvote 정보 없을 때)
+// ============================================================
+
+function contentSignalScore(items: NormalizedItem[]): number {
+  let score = 0
+  for (const item of items) {
+    // 제목에 특정 패턴이 있으면 추가 점수
+    const raw = item.rawTitle.toLowerCase()
+    if (raw.includes('episode') || raw.includes('ep '))  score += 3
+    if (raw.includes('season'))                           score += 2
+    if (raw.includes('review') || raw.includes('watch')) score += 4
+    if (raw.includes('recommend') || raw.includes('suggest')) score += 5
+    if (raw.includes('best') || raw.includes('top'))     score += 3
+    if (raw.includes('worst') || raw.includes('drop'))   score += 2
+    // 댓글이 많은 포스트에 추가 가중치
+    if (item.commentCount > 50)  score += 10
+    if (item.commentCount > 100) score += 15
+    if (item.commentCount > 200) score += 20
+  }
+  return score
+}
+
+// ============================================================
 // 최신성 점수 (최근 7일 내 = 최고)
 // ============================================================
 
@@ -106,13 +129,15 @@ export function scoreCluster(cluster: ContentCluster): ContentCluster {
   const recency = recencyScore(timestamps)
   const diversity = sourceDiversityBonus(cluster)
   const kBonus = kContentBonus(cluster)
+  const contentSignal = contentSignalScore(cluster.rawItems)
 
   // 최종 점수 = 각 컴포넌트의 가중 합산
   const finalScore =
-    mention * 0.40 +
+    mention * 0.35 +
     engagement * 0.20 +
     recency * 0.20 +
-    diversity * 0.15 +
+    diversity * 0.10 +
+    contentSignal * 0.10 +
     kBonus * 0.05
 
   return {
