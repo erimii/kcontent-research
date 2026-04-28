@@ -5,14 +5,14 @@
 import Database from 'better-sqlite3'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import fs from 'fs'
 import type { RankedReport } from './types/index.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const DB_PATH = path.join(__dirname, '..', 'data', 'k-content.db')
+const dataDir = path.join(__dirname, '..', 'data')
+const DB_PATH = path.join(dataDir, 'k-content.db')
 
 // data 디렉토리 생성
-import fs from 'fs'
-const dataDir = path.join(__dirname, '..', 'data')
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true })
 
 export const db = new Database(DB_PATH)
@@ -22,7 +22,7 @@ db.pragma('journal_mode = WAL')
 db.pragma('foreign_keys = ON')
 
 // ============================================================
-// 스키마 초기화
+// 스키마 초기화 (서버 시작 시 반드시 먼저 호출)
 // ============================================================
 export function initDb() {
   db.exec(`
@@ -70,21 +70,20 @@ export function initDb() {
 }
 
 // ============================================================
-// 리포트 저장
+// 리포트 저장 (initDb 이후에만 호출)
 // ============================================================
-const insertReport = db.prepare(`
-  INSERT OR REPLACE INTO reports (id, report_type, generated_at, period_from, period_to, data)
-  VALUES (@id, @reportType, @generatedAt, @periodFrom, @periodTo, @data)
-`)
-
-const insertSnapshot = db.prepare(`
-  INSERT OR REPLACE INTO content_snapshots
-    (id, report_id, title, is_k_content, final_score, sources, platforms, regions, content_type, created_at)
-  VALUES
-    (@id, @reportId, @title, @isKContent, @finalScore, @sources, @platforms, @regions, @contentType, @createdAt)
-`)
-
 export function saveReport(report: RankedReport) {
+  const insertReport = db.prepare(`
+    INSERT OR REPLACE INTO reports (id, report_type, generated_at, period_from, period_to, data)
+    VALUES (@id, @reportType, @generatedAt, @periodFrom, @periodTo, @data)
+  `)
+  const insertSnapshot = db.prepare(`
+    INSERT OR REPLACE INTO content_snapshots
+      (id, report_id, title, is_k_content, final_score, sources, platforms, regions, content_type, created_at)
+    VALUES
+      (@id, @reportId, @title, @isKContent, @finalScore, @sources, @platforms, @regions, @contentType, @createdAt)
+  `)
+
   const saveAll = db.transaction(() => {
     insertReport.run({
       id: report.id,
@@ -116,18 +115,16 @@ export function saveReport(report: RankedReport) {
 // ============================================================
 // 크롤링 로그 저장
 // ============================================================
-const insertLog = db.prepare(`
-  INSERT INTO crawl_logs (id, source, crawled_at, item_count, status, error)
-  VALUES (@id, @source, @crawledAt, @itemCount, @status, @error)
-`)
-
 export function saveCrawlLog(
   source: string,
   itemCount: number,
   status: 'success' | 'failed',
   error?: string
 ) {
-  insertLog.run({
+  db.prepare(`
+    INSERT INTO crawl_logs (id, source, crawled_at, item_count, status, error)
+    VALUES (@id, @source, @crawledAt, @itemCount, @status, @error)
+  `).run({
     id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     source,
     crawledAt: new Date().toISOString(),
