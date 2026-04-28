@@ -8,7 +8,7 @@
     "jsxImportSource": "hono/jsx",
     "lib": ["ES2022"],
     "types": ["@cloudflare/workers-types"],
-    "paths": {}
+    "skipLibCheck": true
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

@@ -8,22 +8,21 @@
     "deploy": "npm run build && wrangler pages deploy dist",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings",
     "dev:sandbox": "wrangler pages dev dist --d1=webapp-production --local --ip 0.0.0.0 --port 3000",
-    "db:migrate:local": "wrangler d1 migrations apply webapp-production --local",
-    "db:migrate:prod": "wrangler d1 migrations apply webapp-production",
+    "db:migrate:local": "wrangler d1 execute webapp-production --local --file=./migrations/0001_initial.sql",
     "db:reset": "rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local"
   },
   "dependencies": {
     "hono": "^4.12.12",
-    "playwright": "^1.59.1",
-    "playwright-core": "^1.59.1"
+    "playwright": "^1.52.0",
+    "playwright-core": "^1.52.0"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260426.1",
+    "@cloudflare/workers-types": "^4.20250705.0",
     "@hono/vite-build": "^1.2.0",
     "@hono/vite-dev-server": "^0.18.2",
-    "tsx": "^4.21.0",
-    "typescript": "^5.0.0",
+    "tsx": "^4.19.4",
     "vite": "^6.3.5",
-    "wrangler": "^4.4.0"
+    "wrangler": "^4.4.0",
+    "typescript": "^5.0.0"
   }
 }
