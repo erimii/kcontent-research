@@ -149,38 +149,40 @@ export async function crawlReddit(options: {
   const nowSec = Date.now() / 1000
   const cutoff = nowSec - ONE_WEEK_SEC
 
-  // ── 1. 서브레딧별 hot + new RSS 전체 병렬 수집 ─────────────
-  const rssResults = await Promise.allSettled(
-    subreddits.flatMap(sub => [
-      fetchRSS(sub, 'hot').then(posts => ({ sub, sort: 'hot' as const, posts })),
-      fetchRSS(sub, 'new').then(posts => ({ sub, sort: 'new' as const, posts })),
-    ])
-  )
+  // ── 1. 서브레딧별 순차 처리, hot+new는 서브레딧 내에서만 병렬 ──
+  // 전체 동시 요청(10개) → 429 발생하므로, 서브레딧 단위로 순차 처리
+  // 서브레딧 내 hot/new 2개는 병렬 (요청 2개 동시 = 안전)
+  for (const sub of subreddits) {
+    try {
+      console.log(`  [Reddit] r/${sub} 수집 중...`)
+      const [hotResult, newResult] = await Promise.allSettled([
+        fetchRSS(sub, 'hot'),
+        fetchRSS(sub, 'new'),
+      ])
 
-  const countBySub: Record<string, number> = {}
+      const hotPosts = hotResult.status === 'fulfilled' ? hotResult.value : []
+      const newPosts = newResult.status === 'fulfilled' ? newResult.value : []
 
-  for (const r of rssResults) {
-    if (r.status === 'rejected') {
-      console.warn(`  [Reddit] RSS 실패:`, r.reason?.message)
-      continue
+      if (hotResult.status === 'rejected') console.warn(`  [Reddit] r/${sub} hot 실패:`, hotResult.reason?.message)
+      if (newResult.status === 'rejected') console.warn(`  [Reddit] r/${sub} new 실패:`, newResult.reason?.message)
+
+      let added = 0
+      for (const p of [...hotPosts, ...newPosts]) {
+        const postSec = new Date(p.createdAt).getTime() / 1000
+        if (postSec < cutoff) continue
+        if (!p.title || seenIds.has(p.id)) continue
+        if (!isKoreanRedditPost(p)) continue
+        seenIds.add(p.id)
+        allPosts.push(p)
+        added++
+      }
+      console.log(`  [Reddit] r/${sub}: hot ${hotPosts.length}개 + new ${newPosts.length}개 → 1주이내+K ${added}개`)
+
+      // 서브레딧 간 간격: 429 방지
+      await new Promise(r => setTimeout(r, 800))
+    } catch (e) {
+      console.error(`  [Reddit] r/${sub} 전체 실패:`, (e as Error).message)
     }
-    const { sub, sort, posts } = r.value
-    let added = 0
-    for (const p of posts) {
-      const postSec = new Date(p.createdAt).getTime() / 1000
-      if (postSec < cutoff) continue
-      if (!p.title || seenIds.has(p.id)) continue
-      if (!isKoreanRedditPost(p)) continue
-      seenIds.add(p.id)
-      allPosts.push(p)
-      added++
-    }
-    countBySub[sub] = (countBySub[sub] || 0) + added
-    console.log(`  [Reddit] r/${sub} [${sort}]: ${posts.length}개 → 1주이내+K ${added}개`)
-  }
-
-  for (const [sub, cnt] of Object.entries(countBySub)) {
-    console.log(`  [Reddit] r/${sub} 합계: ${cnt}개`)
   }
 
   // ── 2. 댓글 수집: 상위 12개 포스트 병렬 처리 ──────────────
