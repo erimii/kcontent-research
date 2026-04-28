@@ -1,24 +1,14 @@
 {
   "compilerOptions": {
-    "target": "ESNext",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "outDir": "./dist-crawler",
-    "rootDir": "./src",
-    "strict": true,
-    "skipLibCheck": true,
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "node",
     "esModuleInterop": true,
-    "resolveJsonModule": true,
-    "lib": ["ESNext", "DOM"],
-    "types": ["node"],
-    "jsx": "react-jsx",
-    "jsxImportSource": "hono/jsx"
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "outDir": "dist-crawler",
+    "rootDir": "src",
+    "skipLibCheck": true
   },
-  "include": [
-    "src/crawlers/**/*",
-    "src/pipeline/**/*",
-    "src/types/**/*",
-    "src/crawler-server.ts"
-  ],
-  "exclude": ["node_modules", "dist", "dist-crawler", "src/index.tsx", "src/renderer.tsx"]
+  "include": ["src/crawler-server.ts", "src/crawlers/**/*", "src/pipeline/**/*", "src/types/**/*", "src/demo-data.ts"]
 }
