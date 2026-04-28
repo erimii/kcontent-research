@@ -4,16 +4,27 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "wrangler pages dev",
+    "preview": "wrangler pages dev dist",
     "deploy": "npm run build && wrangler pages deploy",
-    "cf-typegen": "wrangler types --env-interface CloudflareBindings"
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings",
+    "crawler:build": "tsc -p tsconfig.crawler.json",
+    "crawler:start": "node dist-crawler/crawler-server.js",
+    "dev:sandbox": "wrangler pages dev dist --ip 0.0.0.0 --port 3000",
+    "dev:d1": "wrangler pages dev dist --d1=webapp-production --local --ip 0.0.0.0 --port 3000",
+    "db:migrate:local": "wrangler d1 migrations apply webapp-production --local",
+    "db:migrate:prod": "wrangler d1 migrations apply webapp-production"
   },
   "dependencies": {
-    "hono": "^4.12.12"
+    "@playwright/browser-chromium": "^1.59.1",
+    "hono": "^4.12.12",
+    "playwright": "^1.59.1"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260426.1",
     "@hono/vite-build": "^1.2.0",
     "@hono/vite-dev-server": "^0.18.2",
+    "@types/node": "^25.6.0",
+    "typescript": "^5.9.3",
     "vite": "^6.3.5",
     "wrangler": "^4.4.0"
   }

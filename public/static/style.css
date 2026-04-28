@@ -1,1 +1,219 @@
-h1 { font-family: Arial, Helvetica, sans-serif; }
+/* ============================================================
+   K-Content Intelligence Dashboard - 전역 스타일
+   ============================================================ */
+
+/* 스크롤바 커스텀 */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #111827; }
+::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #4B5563; }
+
+/* 네비게이션 버튼 */
+.nav-btn {
+  color: #9CA3AF;
+  transition: all 0.15s;
+}
+.nav-btn:hover {
+  background: #1F2937;
+  color: #F9FAFB;
+}
+.nav-btn.active {
+  background: #1F2937;
+  color: #F87171;
+  font-weight: 600;
+}
+
+/* 랭킹 필터 버튼 */
+.rank-filter-btn {
+  border-color: #374151;
+  color: #9CA3AF;
+  transition: all 0.15s;
+}
+.rank-filter-btn:hover {
+  border-color: #6B7280;
+  color: #F3F4F6;
+}
+.rank-filter-btn.active {
+  border-color: #F87171;
+  color: #F87171;
+  background: rgba(248, 113, 113, 0.1);
+}
+
+/* 인사이트 카테고리 뱃지 */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.badge-rising     { background: rgba(34,197,94,0.15);  color: #4ADE80; }
+.badge-dominant   { background: rgba(248,113,113,0.15); color: #F87171; }
+.badge-newcomer   { background: rgba(96,165,250,0.15);  color: #60A5FA; }
+.badge-declining  { background: rgba(156,163,175,0.15); color: #9CA3AF; }
+.badge-actor      { background: rgba(196,181,253,0.15); color: #C4B5FD; }
+.badge-genre      { background: rgba(251,191,36,0.15);  color: #FCD34D; }
+.badge-regional   { background: rgba(52,211,153,0.15);  color: #34D399; }
+
+/* K콘텐츠 뱃지 */
+.badge-k {
+  background: rgba(248,113,113,0.15);
+  color: #F87171;
+  border: 1px solid rgba(248,113,113,0.3);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+/* 소스 뱃지 */
+.source-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid;
+}
+.source-reddit     { color: #FB923C; border-color: rgba(251,146,60,0.4); background: rgba(251,146,60,0.08); }
+.source-flixpatrol { color: #4ADE80; border-color: rgba(74,222,128,0.4); background: rgba(74,222,128,0.08); }
+.source-mydramalist{ color: #60A5FA; border-color: rgba(96,165,250,0.4); background: rgba(96,165,250,0.08); }
+.source-letterboxd { color: #A78BFA; border-color: rgba(167,139,250,0.4); background: rgba(167,139,250,0.08); }
+.source-fundex     { color: #FCD34D; border-color: rgba(252,211,77,0.4);  background: rgba(252,211,77,0.08); }
+
+/* 순위 숫자 */
+.rank-num {
+  font-size: 13px;
+  font-weight: 800;
+  min-width: 28px;
+  text-align: center;
+}
+.rank-1 { color: #FCD34D; }
+.rank-2 { color: #D1D5DB; }
+.rank-3 { color: #CD7C2F; }
+.rank-other { color: #6B7280; }
+
+/* 감성 분석 바 */
+.sentiment-bar {
+  height: 4px;
+  border-radius: 2px;
+}
+.sentiment-positive { background: #4ADE80; }
+.sentiment-mixed    { background: #FCD34D; }
+.sentiment-negative { background: #F87171; }
+
+/* 스코어 바 */
+.score-bar-bg {
+  background: #1F2937;
+  border-radius: 2px;
+  height: 4px;
+  overflow: hidden;
+}
+.score-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #F87171, #FB923C);
+  transition: width 0.6s ease;
+}
+
+/* 플랫폼 카드 헤더 색상 */
+.platform-netflix   { background: linear-gradient(135deg, #E50914, #B00710); }
+.platform-disney    { background: linear-gradient(135deg, #0063E5, #003E8C); }
+.platform-apple     { background: linear-gradient(135deg, #333333, #111111); }
+.platform-amazon    { background: linear-gradient(135deg, #00A8E1, #005A77); }
+.platform-hulu      { background: linear-gradient(135deg, #1CE783, #0E8F50); }
+.platform-hbo       { background: linear-gradient(135deg, #7B2FBE, #4A1A72); }
+.platform-paramount { background: linear-gradient(135deg, #0064FF, #003799); }
+.platform-default   { background: linear-gradient(135deg, #374151, #1F2937); }
+
+/* 로딩 스피너 */
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(248,113,113,0.3);
+  border-radius: 50%;
+  border-top-color: #F87171;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 크롤링 진행 상태 */
+.crawl-progress {
+  background: rgba(248,113,113,0.05);
+  border: 1px solid rgba(248,113,113,0.2);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+/* 카드 호버 */
+.hover-card {
+  transition: border-color 0.15s, transform 0.15s;
+}
+.hover-card:hover {
+  border-color: #4B5563;
+  transform: translateY(-1px);
+}
+
+/* 뉴스레터 스타일 */
+#newsletterPreview {
+  font-family: Georgia, serif;
+  line-height: 1.8;
+}
+#newsletterPreview h2 {
+  color: #F87171;
+  border-bottom: 1px solid #374151;
+  padding-bottom: 8px;
+  margin-bottom: 12px;
+  font-size: 16px;
+  font-weight: 700;
+}
+#newsletterPreview h3 {
+  color: #E5E7EB;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 16px 0 8px;
+}
+#newsletterPreview ul { list-style: disc; padding-left: 18px; }
+#newsletterPreview li { margin-bottom: 4px; font-size: 13px; }
+#newsletterPreview p  { font-size: 13px; color: #9CA3AF; }
+
+/* 토스트 알림 */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9999;
+  padding: 12px 20px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  animation: slideUp 0.3s ease;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+}
+.toast-success { background: #065F46; color: #34D399; border: 1px solid #059669; }
+.toast-error   { background: #7F1D1D; color: #F87171; border: 1px solid #DC2626; }
+.toast-info    { background: #1E3A5F; color: #60A5FA; border: 1px solid #2563EB; }
+@keyframes slideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+/* 스탯 카드 숫자 애니메이션 */
+@keyframes countUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.stat-num-animate { animation: countUp 0.4s ease; }
+
+/* 반응형 */
+@media (max-width: 768px) {
+  #sidebar { width: 56px; }
+  #sidebar .nav-btn span { display: none; }
+  #sidebar h1, #sidebar p { display: none; }
+  #sidebar button > *:last-child { display: none; }
+}
