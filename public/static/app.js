@@ -32,13 +32,13 @@ const API = {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ type })
   }),
-  crawl: (type = 'daily', sources = ['reddit','flixpatrol','mydramalist']) => safeJsonFetch('/api/crawl', {
+  crawl: (type = 'daily') => safeJsonFetch('/api/crawl', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type, sources })
+    body: JSON.stringify({ type, sources: ['reddit'] })
   }),
-  scheduleTrigger: (type = 'daily', sources = ['reddit','flixpatrol','mydramalist']) => safeJsonFetch('/api/schedule/trigger', {
+  scheduleTrigger: (type = 'daily') => safeJsonFetch('/api/schedule/trigger', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type, sources })
+    body: JSON.stringify({ type, sources: ['reddit'] })
   }),
   reports:      (type = 'daily') => safeJsonFetch(`/api/reports?type=${type}&limit=20`),
   latestReport: (type = 'daily') => safeJsonFetch(`/api/reports/latest/${type}`),
@@ -107,7 +107,7 @@ function insightIcon(cat) {
 }
 
 function sourceColor(s) {
-  const map = { reddit: '#ff6534', flixpatrol: '#4f8ef7', mydramalist: '#9b59b6', letterboxd: '#2ecc71', fundex: '#f39c12' }
+  const map = { reddit: '#ff6534' }
   return map[s] || '#7986cb'
 }
 
@@ -167,11 +167,6 @@ function renderDashboard() {
   const topK = r.topContents?.filter(c => c.isKContent) || []
   const allContents = r.topContents || []
 
-  // 플랫폼별 TOP N 추출 (finalScore 기준, 이미 정렬됨)
-  const platformTop = (key, n = 7) => allContents
-    .filter(c => c.platforms?.includes(key))
-    .slice(0, n)
-
   // Reddit 버즈 TOP 5: 댓글 수 기준
   const redditBuzz = [...allContents]
     .filter(c => c.sources.includes('reddit'))
@@ -181,18 +176,6 @@ function renderDashboard() {
       return bC - aC
     })
     .slice(0, 5)
-
-  // MyDramaList 독점 (플랫폼 없음)
-  const mdlOnly = allContents
-    .filter(c => (!c.platforms || c.platforms.length === 0) && c.sources.includes('mydramalist'))
-    .slice(0, 5)
-
-  const netflix = platformTop('netflix', 7)
-  const disney  = platformTop('disney', 5)
-  const apple   = platformTop('apple', 5)
-
-  // 플랫폼별 K-콘텐츠 비율
-  const kRatio = (list) => list.length ? Math.round(list.filter(c=>c.isKContent).length / list.length * 100) : 0
 
   // 공통 랭크 아이템 렌더러
   const rankItem = (c, i, extraHtml = '') => `
@@ -207,18 +190,6 @@ function renderDashboard() {
         </div>
       </div>
       <div class="rank-score">${fmtScore(c.finalScore)}</div>
-    </div>`
-
-  // 플랫폼 헤더 렌더러
-  const platHeader = (icon, label, accentColor, list, subLabel = '') => `
-    <div class="card-header" style="border-left:3px solid ${accentColor}">
-      <div class="card-title">
-        <i class="${icon}" style="color:${accentColor}"></i> ${label}
-      </div>
-      <div style="display:flex;align-items:center;gap:8px">
-        ${list.length ? `<span class="plat-k-ratio" style="background:${accentColor}22;color:${accentColor}">K ${kRatio(list)}%</span>` : ''}
-        <span style="font-size:10px;color:var(--text-muted)">${subLabel || `TOP ${list.length}`}</span>
-      </div>
     </div>`
 
   return `
@@ -268,51 +239,7 @@ function renderDashboard() {
         </div>
       </div>
 
-      <!-- 플랫폼별 섹션 헤더 -->
-      <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px">
-        📺 플랫폼별 인기 콘텐츠
-      </div>
-
-      <!-- 1행: Netflix (큰 카드) + Disney+ + Apple TV+ -->
-      <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:14px;align-items:start">
-
-        <!-- Netflix TOP 7 -->
-        <div class="card">
-          ${platHeader('fas fa-play-circle', 'Netflix', '#e50914', netflix, `TOP ${netflix.length}`)}
-          <div class="card-body" style="padding:4px 14px">
-            ${netflix.length === 0
-              ? '<div class="plat-empty">데이터 없음</div>'
-              : netflix.map((c, i) => rankItem(c, i,
-                  c.regions?.length ? `<span style="font-size:10px;color:var(--text-muted)">${c.regions.slice(0,2).join('·')}</span>` : ''
-                )).join('')}
-          </div>
-        </div>
-
-        <!-- Disney+ TOP 5 -->
-        <div class="card">
-          ${platHeader('fas fa-star', 'Disney+', '#4f8ef7', disney)}
-          <div class="card-body" style="padding:4px 14px">
-            ${disney.length === 0
-              ? '<div class="plat-empty">데이터 없음</div>'
-              : disney.map((c, i) => rankItem(c, i,
-                  c.regions?.length ? `<span style="font-size:10px;color:var(--text-muted)">${c.regions[0]}</span>` : ''
-                )).join('')}
-          </div>
-        </div>
-
-        <!-- Apple TV+ TOP 5 -->
-        <div class="card">
-          ${platHeader('fab fa-apple', 'Apple TV+', '#a0a0a0', apple)}
-          <div class="card-body" style="padding:4px 14px">
-            ${apple.length === 0
-              ? '<div class="plat-empty">데이터 없음</div>'
-              : apple.map((c, i) => rankItem(c, i)).join('')}
-          </div>
-        </div>
-
-      </div>
-
-      <!-- 2행: Reddit 버즈 + MyDramaList 독점 -->
+      <!-- Reddit 버즈 -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start">
 
         <!-- Reddit 버즈 TOP 5 -->
@@ -358,39 +285,18 @@ function renderDashboard() {
           </div>
         </div>
 
-        <!-- MyDramaList 독점 인기작 -->
+        <!-- TOP 30 전체 목록 -->
         <div class="card">
-          <div class="card-header" style="border-left:3px solid #9b59b6">
+          <div class="card-header" style="border-left:3px solid var(--accent-blue)">
             <div class="card-title">
-              <i class="fas fa-star" style="color:#9b59b6"></i> MyDramaList 인기작
+              <i class="fas fa-list" style="color:var(--accent-blue)"></i> 전체 TOP ${allContents.length}
             </div>
-            <div style="display:flex;align-items:center;gap:8px">
-              ${mdlOnly.length ? `<span class="plat-k-ratio" style="background:#9b59b622;color:#9b59b6">K ${kRatio(mdlOnly)}%</span>` : ''}
-              <span style="font-size:10px;color:var(--text-muted)">스트리밍 미집계</span>
-            </div>
+            <span style="font-size:10px;color:var(--text-muted)">종합 점수 순</span>
           </div>
           <div class="card-body" style="padding:4px 14px">
-            ${mdlOnly.length === 0
-              ? '<div class="plat-empty">모든 항목이 플랫폼에 포함됨</div>'
-              : mdlOnly.map((c, i) => {
-                  const mdlItem = c.rawItems?.find(ri => ri.source === 'mydramalist')
-                  const rating = mdlItem?.metadata?.rating
-                  const genres = c.genres?.slice(0,2).join(', ') || ''
-                  return `
-                    <div class="plat-rank-item">
-                      <div class="rank-num ${rankColor(i)}">${i+1}</div>
-                      <div class="plat-rank-info">
-                        <div class="plat-rank-title" title="${escHtml(c.representativeTitle)}">${escHtml(c.representativeTitle)}</div>
-                        <div class="plat-rank-meta">
-                          ${c.isKContent ? '<span class="badge badge-k">K</span>' : ''}
-                          ${contentTypeBadge(c.contentType)}
-                          ${rating ? `<span style="font-size:10px;color:#f1c40f">★ ${rating}</span>` : ''}
-                          ${genres ? `<span style="font-size:10px;color:var(--text-muted)">${genres}</span>` : ''}
-                        </div>
-                      </div>
-                      <div class="rank-score">${fmtScore(c.finalScore)}</div>
-                    </div>`
-                }).join('')}
+            ${allContents.length === 0
+              ? '<div class="plat-empty">데이터 없음</div>'
+              : allContents.slice(0, 10).map((c, i) => rankItem(c, i)).join('')}
           </div>
         </div>
 
@@ -614,7 +520,6 @@ function renderRanking() {
   let items = r.topContents || []
   if (activeTab === 'k')          items = items.filter(c => c.isKContent)
   if (activeTab === 'reddit')     items = items.filter(c => c.sources.includes('reddit'))
-  if (activeTab === 'flixpatrol') items = items.filter(c => c.sources.includes('flixpatrol'))
   if (activeTab === 'multi')      items = items.filter(c => c.sources.length >= 2)
   const maxScore = items[0]?.finalScore || 1
 
@@ -628,7 +533,7 @@ function renderRanking() {
     <div style="padding:20px 28px">
       <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center">
         <div class="tabs" style="width:fit-content">
-          ${[['all','전체'],['k','🇰🇷 K-콘텐츠'],['multi','멀티소스'],['reddit','Reddit'],['flixpatrol','FlixPatrol']].map(([tab, label]) =>
+          ${[['all','전체'],['k','🇰🇷 K-콘텐츠'],['reddit','Reddit']].map(([tab, label]) =>
             `<button class="tab-btn ${activeTab===tab?'active':''}" onclick="setRankTab('${tab}')">${label}</button>`
           ).join('')}
         </div>
@@ -692,7 +597,7 @@ function renderCrawl() {
     <div class="page-header">
       <div>
         <div class="page-title">🤖 크롤링 제어</div>
-        <div class="page-sub">Playwright 기반 실제 데이터 수집</div>
+        <div class="page-sub">Reddit RSS 기반 실시간 데이터 수집</div>
       </div>
     </div>
     <div style="padding:20px 28px;display:flex;flex-direction:column;gap:20px">
@@ -702,23 +607,14 @@ function renderCrawl() {
           <div class="card-title"><i class="fas fa-cog"></i> 크롤링 설정</div>
         </div>
         <div class="card-body">
-          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
-            ${[
-              ['reddit',      'fab fa-reddit', '#ff6534',  'Reddit',      'r/kdramas, r/kdrama 등 5개 서브레딧'],
-              ['flixpatrol',  'fas fa-film',   '#4f8ef7',  'FlixPatrol',  'Netflix·Disney+ 글로벌 순위'],
-              ['mydramalist', 'fas fa-star',   '#9b59b6',  'MyDramaList', '한국 드라마 인기 순위'],
-            ].map(([id, icon, color, label, desc]) => `
-              <label style="cursor:pointer">
-                <div class="card" style="padding:14px;border-color:${color}33;transition:all 0.2s" id="src-${id}-card">
-                  <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-                    <input type="checkbox" id="src-${id}" checked onchange="updateSourceCard('${id}')"
-                      style="accent-color:${color};width:16px;height:16px">
-                    <i class="${icon}" style="color:${color};font-size:16px"></i>
-                    <span style="font-weight:600;font-size:13px">${label}</span>
-                  </div>
-                  <div style="font-size:11px;color:var(--text-muted);padding-left:26px">${desc}</div>
-                </div>
-              </label>`).join('')}
+          <div style="display:grid;grid-template-columns:1fr;gap:12px;margin-bottom:16px">
+            <div class="card" style="padding:14px;border-color:#ff653333">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+                <i class="fab fa-reddit" style="color:#ff6534;font-size:16px"></i>
+                <span style="font-weight:600;font-size:13px">Reddit</span>
+              </div>
+              <div style="font-size:11px;color:var(--text-muted);padding-left:26px">r/kdramas, r/kdrama, r/kdramarecommends, r/korean, r/koreatravel · hot+new · 1주 이내</div>
+            </div>
           </div>
 
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -847,7 +743,7 @@ function renderSchedule() {
           </div>
           <div class="card-body">
             <div style="font-size:22px;font-weight:700;color:var(--accent-blue);margin-bottom:6px">매일 오전 9시</div>
-            <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Reddit + FlixPatrol + MyDramaList</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Reddit (5개 서브레딧)</div>
             <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">다음 실행</div>
             <div style="font-size:13px;color:var(--text-primary)">${s ? fmtDateFull(s.nextDaily) : '-'}</div>
           </div>
@@ -1023,8 +919,7 @@ async function runDemo(type = 'daily') {
 async function startCrawl() {
   if (state.crawling) return
   const type = window._crawlType || 'daily'
-  const sources = ['reddit','flixpatrol','mydramalist'].filter(s => document.getElementById(`src-${s}`)?.checked)
-  if (!sources.length) { toast('최소 1개 소스를 선택하세요', 'error'); return }
+  const sources = ['reddit']
 
   state.crawling = true
   state.crawlLogs = []

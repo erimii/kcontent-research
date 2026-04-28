@@ -1,6 +1,6 @@
 // ============================================================
 // K-Content Intelligence Dashboard - Node.js 단일 서버
-// Express + SQLite + Playwright
+// Express + SQLite (Reddit 전용)
 // ============================================================
 
 import express from 'express'
@@ -12,7 +12,7 @@ import {
   getLatestReport, getReportList, getReportById, getCrawlLogs, searchSnapshots
 } from './db.js'
 import { runPipeline } from './pipeline/index.js'
-import { demoRedditPosts, demoFlixPatrol, demoMyDramaList } from './demo-data.js'
+import { demoRedditPosts } from './demo-data.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -81,15 +81,11 @@ app.post('/api/crawl/demo', (req, res) => {
 
     const report = runPipeline({
       redditPosts: demoRedditPosts,
-      flixPatrolEntries: demoFlixPatrol,
-      myDramaListEntries: demoMyDramaList,
       reportType,
     })
 
     saveReport(report)
     saveCrawlLog('reddit', demoRedditPosts.length, 'success')
-    saveCrawlLog('flixpatrol', demoFlixPatrol.length, 'success')
-    saveCrawlLog('mydramalist', demoMyDramaList.length, 'success')
 
     console.log(`[Demo] 완료 - 클러스터: ${report.topContents.length}개, 인사이트: ${report.insights.length}개`)
     res.json({ ok: true, reportId: report.id, report })
@@ -100,28 +96,25 @@ app.post('/api/crawl/demo', (req, res) => {
 })
 
 // ============================================================
-// 실제 크롤링 실행
+// 실제 크롤링 실행 (Reddit 전용)
 // ============================================================
 app.post('/api/crawl', async (req, res) => {
-  // 응답이 이미 전송됐는지 체크하는 헬퍼
   const safeSend = (status: number, body: object) => {
     if (res.headersSent) return
     res.status(status).json(body)
   }
 
   const reportType = (req.body?.type as 'daily' | 'weekly') ?? 'daily'
-  const sources: string[] = req.body?.sources ?? ['reddit', 'flixpatrol', 'mydramalist']
   const logs: string[] = []
   const start = Date.now()
 
   const log = (msg: string) => { console.log(msg); logs.push(msg) }
-  log(`\n[크롤링] 시작 (${reportType}) - 소스: ${sources.join(', ')}`)
+  log(`\n[크롤링] 시작 (${reportType}) - 소스: reddit`)
 
-  // 전체 크롤링에 5분 타임아웃
   const crawlTimeout = setTimeout(() => {
     log('[타임아웃] 5분 초과 - 수집된 데이터로 파이프라인 실행')
     try {
-      const report = runPipeline({ redditPosts, flixPatrolEntries, myDramaListEntries, reportType })
+      const report = runPipeline({ redditPosts, reportType })
       saveReport(report)
       safeSend(200, { ok: true, reportId: report.id, logs, report, timedOut: true })
     } catch (e) {
@@ -130,48 +123,20 @@ app.post('/api/crawl', async (req, res) => {
   }, 5 * 60 * 1000)
 
   let redditPosts: any[] = []
-  let flixPatrolEntries: any[] = []
-  let myDramaListEntries: any[] = []
 
   try {
-    if (sources.includes('reddit')) {
-      try {
-        const { crawlReddit } = await import('./crawlers/reddit.js')
-        redditPosts = await crawlReddit()
-        saveCrawlLog('reddit', redditPosts.length, 'success')
-        log(`[Reddit] ${redditPosts.length}개 포스트 수집`)
-      } catch (e) {
-        saveCrawlLog('reddit', 0, 'failed', String(e))
-        log(`[Reddit] 실패: ${(e as Error).message}`)
-      }
-    }
-
-    if (sources.includes('flixpatrol')) {
-      try {
-        const { crawlFlixPatrol } = await import('./crawlers/flixpatrol.js')
-        flixPatrolEntries = await crawlFlixPatrol()
-        saveCrawlLog('flixpatrol', flixPatrolEntries.length, 'success')
-        log(`[Soompi/Koreaboo] ${flixPatrolEntries.length}개 항목 수집`)
-      } catch (e) {
-        saveCrawlLog('flixpatrol', 0, 'failed', String(e))
-        log(`[Soompi/Koreaboo] 실패: ${(e as Error).message}`)
-      }
-    }
-
-    if (sources.includes('mydramalist')) {
-      try {
-        const { crawlMyDramaList } = await import('./crawlers/mydramalist.js')
-        myDramaListEntries = await crawlMyDramaList()
-        saveCrawlLog('mydramalist', myDramaListEntries.length, 'success')
-        log(`[MyDramaList] ${myDramaListEntries.length}개 드라마 수집`)
-      } catch (e) {
-        saveCrawlLog('mydramalist', 0, 'failed', String(e))
-        log(`[MyDramaList] 실패: ${(e as Error).message}`)
-      }
+    try {
+      const { crawlReddit } = await import('./crawlers/reddit.js')
+      redditPosts = await crawlReddit()
+      saveCrawlLog('reddit', redditPosts.length, 'success')
+      log(`[Reddit] ${redditPosts.length}개 포스트 수집`)
+    } catch (e) {
+      saveCrawlLog('reddit', 0, 'failed', String(e))
+      log(`[Reddit] 실패: ${(e as Error).message}`)
     }
 
     log('[Pipeline] 데이터 처리 중...')
-    const report = runPipeline({ redditPosts, flixPatrolEntries, myDramaListEntries, reportType })
+    const report = runPipeline({ redditPosts, reportType })
     saveReport(report)
 
     const elapsed = ((Date.now() - start) / 1000).toFixed(1)
@@ -268,8 +233,6 @@ app.get('/api/newsletter/:id', (req, res) => {
   .evidence span { font-size: 10px; background: rgba(0,0,0,0.05); padding: 1px 5px; border-radius: 4px; color: #7986cb; }
   .source-tag { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px; margin-right: 3px; }
   .src-reddit { background: #fff0eb; color: #e64a19; }
-  .src-flixpatrol { background: #e8f0ff; color: #1565c0; }
-  .src-mydramalist { background: #f3e5f5; color: #6a1b9a; }
   .footer { text-align: center; padding: 20px; font-size: 11px; color: #9ba3bf; }
 </style>
 </head>
@@ -277,12 +240,12 @@ app.get('/api/newsletter/:id', (req, res) => {
 <div class="wrapper">
   <div class="header">
     <div class="header-title">🇰🇷 K-Content Intelligence</div>
-    <div class="header-sub">${r.reportType === 'weekly' ? '주간' : '일간'} 글로벌 팬 트렌드 리포트</div>
+    <div class="header-sub">${r.reportType === 'weekly' ? '주간' : '일간'} Reddit K콘텐츠 트렌드 리포트</div>
     <div class="header-meta">
       <span class="meta-chip">📅 ${now}</span>
       <span class="meta-chip">🎬 ${r.topContents?.length || 0} titles tracked</span>
       <span class="meta-chip">🇰🇷 ${topK.length} K-titles</span>
-      <span class="meta-chip">📡 ${(r.sourceSummary || []).map((s: any) => s.source).join(', ')}</span>
+      <span class="meta-chip">📡 Reddit (kdramas, kdrama, kdramarecommends, korean, koreatravel)</span>
     </div>
   </div>
 
@@ -324,11 +287,7 @@ app.get('/api/newsletter/:id', (req, res) => {
       topK.slice(0, 10).map((c: any, i: number) => `
         <div class="rank-row">
           <div class="rank-num ${i===0?'gold':i===1?'silver':i===2?'bronze':''}">${i+1}</div>
-          <div class="rank-title">
-            ${c.representativeTitle}
-            ${c.actors?.length ? `<span style="font-size:11px;color:#9ba3bf;font-weight:400"> · ${c.actors.slice(0,2).join(', ')}</span>` : ''}
-          </div>
-          <div style="font-size:11px;color:#9ba3bf">${c.platforms?.join(', ') || '-'}</div>
+          <div class="rank-title">${c.representativeTitle}</div>
           <div class="rank-score">${Math.round(c.finalScore)}pts</div>
         </div>`).join('')}
   </div>
@@ -405,8 +364,8 @@ app.get('/api/schedule', (_req, res) => {
   res.json({
     ok: true,
     schedule: {
-      daily: { cron: '0 9 * * *', description: '매일 오전 9시 (Reddit + FlixPatrol + MyDramaList)', enabled: true },
-      weekly: { cron: '0 8 * * 1', description: '매주 월요일 오전 8시 (전체 소스 종합)', enabled: true },
+      daily: { cron: '0 9 * * *', description: '매일 오전 9시 (Reddit 5개 서브레딧)', enabled: true },
+      weekly: { cron: '0 8 * * 1', description: '매주 월요일 오전 8시', enabled: true },
     },
     lastRuns: getCrawlLogs(5),
     nextDaily: (() => {
@@ -431,53 +390,26 @@ app.post('/api/schedule/trigger', async (req, res) => {
   }
 
   const reportType = (req.body?.type as 'daily' | 'weekly') ?? 'daily'
-  const sources: string[] = req.body?.sources ?? ['reddit', 'flixpatrol', 'mydramalist']
   const logs: string[] = []
   const start = Date.now()
 
   const log = (msg: string) => { console.log('[Schedule]', msg); logs.push(msg) }
-  log(`스케줄 수동 트리거: ${reportType} / 소스: ${sources.join(', ')}`)
+  log(`스케줄 수동 트리거: ${reportType} / 소스: reddit`)
 
   let redditPosts: any[] = []
-  let flixPatrolEntries: any[] = []
-  let myDramaListEntries: any[] = []
 
   try {
-    if (sources.includes('reddit')) {
-      try {
-        const { crawlReddit } = await import('./crawlers/reddit.js')
-        redditPosts = await crawlReddit()
-        saveCrawlLog('reddit', redditPosts.length, 'success')
-        log(`Reddit: ${redditPosts.length}개 포스트`)
-      } catch (e) {
-        saveCrawlLog('reddit', 0, 'failed', String(e))
-        log(`Reddit 실패: ${(e as Error).message}`)
-      }
-    }
-    if (sources.includes('flixpatrol')) {
-      try {
-        const { crawlFlixPatrol } = await import('./crawlers/flixpatrol.js')
-        flixPatrolEntries = await crawlFlixPatrol()
-        saveCrawlLog('flixpatrol', flixPatrolEntries.length, 'success')
-        log(`Soompi/Koreaboo: ${flixPatrolEntries.length}개`)
-      } catch (e) {
-        saveCrawlLog('flixpatrol', 0, 'failed', String(e))
-        log(`Soompi/Koreaboo 실패: ${(e as Error).message}`)
-      }
-    }
-    if (sources.includes('mydramalist')) {
-      try {
-        const { crawlMyDramaList } = await import('./crawlers/mydramalist.js')
-        myDramaListEntries = await crawlMyDramaList()
-        saveCrawlLog('mydramalist', myDramaListEntries.length, 'success')
-        log(`MyDramaList: ${myDramaListEntries.length}개`)
-      } catch (e) {
-        saveCrawlLog('mydramalist', 0, 'failed', String(e))
-        log(`MyDramaList 실패: ${(e as Error).message}`)
-      }
+    try {
+      const { crawlReddit } = await import('./crawlers/reddit.js')
+      redditPosts = await crawlReddit()
+      saveCrawlLog('reddit', redditPosts.length, 'success')
+      log(`Reddit: ${redditPosts.length}개 포스트`)
+    } catch (e) {
+      saveCrawlLog('reddit', 0, 'failed', String(e))
+      log(`Reddit 실패: ${(e as Error).message}`)
     }
 
-    const report = runPipeline({ redditPosts, flixPatrolEntries, myDramaListEntries, reportType })
+    const report = runPipeline({ redditPosts, reportType })
     saveReport(report)
     const elapsed = ((Date.now() - start) / 1000).toFixed(1)
     log(`완료 (${elapsed}s) - 클러스터: ${report.topContents.length}개, 인사이트: ${report.insights.length}개`)
@@ -553,12 +485,10 @@ app.get('*', (_req, res) => {
 // ============================================================
 process.on('uncaughtException', (err) => {
   console.error('[uncaughtException] 치명적 에러 발생 (서버 유지):', err.message)
-  // 서버를 종료하지 않고 계속 실행
 })
 
 process.on('unhandledRejection', (reason) => {
   console.error('[unhandledRejection] Promise 에러 발생 (서버 유지):', reason)
-  // 서버를 종료하지 않고 계속 실행
 })
 
 // ============================================================

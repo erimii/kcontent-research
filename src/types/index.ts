@@ -1,4 +1,4 @@
-export type SourceType = 'reddit' | 'flixpatrol' | 'mydramalist' | 'letterboxd' | 'fundex' | 'google_trends'
+export type SourceType = 'reddit'
 export type ContentType = 'drama' | 'movie' | 'variety' | 'unknown'
 export type ReportType = 'daily' | 'weekly'
 
@@ -19,29 +19,6 @@ export interface RedditComment {
   body: string
   score: number
   depth: number
-}
-
-export interface FlixPatrolEntry {
-  rank: number
-  title: string
-  platform: string
-  region: string
-  points: number
-  previousRank?: number
-  isKContent: boolean
-  url?: string
-}
-
-export interface MyDramaListEntry {
-  rank: number
-  title: string
-  year?: number
-  rating: number
-  votes: number
-  episodes?: number
-  genres: string[]
-  actors: string[]
-  url: string
 }
 
 export interface NormalizedItem {
@@ -110,7 +87,5 @@ export interface RankedReport {
 
 export interface PipelineInput {
   redditPosts?: RedditPost[]
-  flixPatrolEntries?: FlixPatrolEntry[]
-  myDramaListEntries?: MyDramaListEntry[]
   reportType?: ReportType
 }
