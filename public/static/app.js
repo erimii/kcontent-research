@@ -141,7 +141,61 @@ function renderDashboard() {
   }
 
   const topK = r.topContents?.filter(c => c.isKContent) || []
-  const maxScore = r.topContents?.[0]?.finalScore || 1
+  const allContents = r.topContents || []
+
+  // 플랫폼별 TOP N 추출 (finalScore 기준, 이미 정렬됨)
+  const platformTop = (key, n = 7) => allContents
+    .filter(c => c.platforms?.includes(key))
+    .slice(0, n)
+
+  // Reddit 버즈 TOP 5: 댓글 수 기준
+  const redditBuzz = [...allContents]
+    .filter(c => c.sources.includes('reddit'))
+    .sort((a, b) => {
+      const aC = a.rawItems?.filter(i => i.source==='reddit').reduce((s,i)=>s+i.commentCount,0) || 0
+      const bC = b.rawItems?.filter(i => i.source==='reddit').reduce((s,i)=>s+i.commentCount,0) || 0
+      return bC - aC
+    })
+    .slice(0, 5)
+
+  // MyDramaList 독점 (플랫폼 없음)
+  const mdlOnly = allContents
+    .filter(c => (!c.platforms || c.platforms.length === 0) && c.sources.includes('mydramalist'))
+    .slice(0, 5)
+
+  const netflix = platformTop('netflix', 7)
+  const disney  = platformTop('disney', 5)
+  const apple   = platformTop('apple', 5)
+
+  // 플랫폼별 K-콘텐츠 비율
+  const kRatio = (list) => list.length ? Math.round(list.filter(c=>c.isKContent).length / list.length * 100) : 0
+
+  // 공통 랭크 아이템 렌더러
+  const rankItem = (c, i, extraHtml = '') => `
+    <div class="plat-rank-item">
+      <div class="rank-num ${rankColor(i)}">${i+1}</div>
+      <div class="plat-rank-info">
+        <div class="plat-rank-title" title="${escHtml(c.representativeTitle)}">${escHtml(c.representativeTitle)}</div>
+        <div class="plat-rank-meta">
+          ${c.isKContent ? '<span class="badge badge-k">K</span>' : ''}
+          ${contentTypeBadge(c.contentType)}
+          ${extraHtml}
+        </div>
+      </div>
+      <div class="rank-score">${fmtScore(c.finalScore)}</div>
+    </div>`
+
+  // 플랫폼 헤더 렌더러
+  const platHeader = (icon, label, accentColor, list, subLabel = '') => `
+    <div class="card-header" style="border-left:3px solid ${accentColor}">
+      <div class="card-title">
+        <i class="${icon}" style="color:${accentColor}"></i> ${label}
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        ${list.length ? `<span class="plat-k-ratio" style="background:${accentColor}22;color:${accentColor}">K ${kRatio(list)}%</span>` : ''}
+        <span style="font-size:10px;color:var(--text-muted)">${subLabel || `TOP ${list.length}`}</span>
+      </div>
+    </div>`
 
   return `
     <div class="page-header">
@@ -156,7 +210,7 @@ function renderDashboard() {
           <i class="fas fa-newspaper"></i> 뉴스레터
         </button>
         <button class="btn btn-outline" onclick="runDemo('${state.reportType}')">
-          <i class="fas fa-sync-alt"></i> 데모 새로고침
+          <i class="fas fa-sync-alt"></i> 새로고침
         </button>
         <button class="btn btn-primary" onclick="navigateTo('crawl')">
           <i class="fas fa-robot"></i> 크롤링
@@ -170,13 +224,13 @@ function renderDashboard() {
       <div class="stat-grid">
         <div class="stat-card">
           <div class="stat-label">🎬 총 콘텐츠</div>
-          <div class="stat-value" style="color:var(--accent-blue)">${r.topContents?.length || 0}</div>
-          <div class="stat-change">클러스터링 후 중복 제거</div>
+          <div class="stat-value" style="color:var(--accent-blue)">${allContents.length}</div>
+          <div class="stat-change">중복 제거 후</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">🇰🇷 K-콘텐츠</div>
           <div class="stat-value" style="color:var(--accent-pink)">${topK.length}</div>
-          <div class="stat-change">전체의 ${r.topContents?.length ? Math.round(topK.length/r.topContents.length*100) : 0}%</div>
+          <div class="stat-change">전체의 ${allContents.length ? Math.round(topK.length/allContents.length*100) : 0}%</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">💡 인사이트</div>
@@ -190,60 +244,132 @@ function renderDashboard() {
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <!-- 플랫폼별 섹션 헤더 -->
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px">
+        📺 플랫폼별 인기 콘텐츠
+      </div>
 
-        <!-- 전체 TOP 10 -->
+      <!-- 1행: Netflix (큰 카드) + Disney+ + Apple TV+ -->
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:14px;align-items:start">
+
+        <!-- Netflix TOP 7 -->
         <div class="card">
-          <div class="card-header">
-            <div class="card-title"><i class="fas fa-trophy" style="color:#f1c40f"></i> 전체 TOP 10</div>
-            <span style="font-size:11px;color:var(--text-muted)">점수 기준</span>
-          </div>
-          <div class="card-body" style="padding:8px 18px">
-            ${(r.topContents || []).slice(0, 10).map((c, i) => `
-              <div class="rank-item">
-                <div class="rank-num ${rankColor(i)}">${i + 1}</div>
-                <div class="rank-info">
-                  <div class="rank-title">${escHtml(c.representativeTitle)}</div>
-                  <div class="rank-meta">
-                    ${c.isKContent ? '<span class="badge badge-k">K</span> ' : ''}
-                    ${contentTypeBadge(c.contentType)}
-                    <span style="margin-left:4px">${c.sources.join(' · ')}</span>
-                  </div>
-                </div>
-                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-                  <div class="rank-score">${fmtScore(c.finalScore)}pts</div>
-                  <div class="progress-bar" style="width:60px">
-                    <div class="progress-fill" style="width:${Math.round(c.finalScore/maxScore*100)}%"></div>
-                  </div>
-                </div>
-              </div>`).join('')}
+          ${platHeader('fas fa-play-circle', 'Netflix', '#e50914', netflix, `TOP ${netflix.length}`)}
+          <div class="card-body" style="padding:4px 14px">
+            ${netflix.length === 0
+              ? '<div class="plat-empty">데이터 없음</div>'
+              : netflix.map((c, i) => rankItem(c, i,
+                  c.regions?.length ? `<span style="font-size:10px;color:var(--text-muted)">${c.regions.slice(0,2).join('·')}</span>` : ''
+                )).join('')}
           </div>
         </div>
 
-        <!-- K-Content TOP 10 -->
+        <!-- Disney+ TOP 5 -->
         <div class="card">
-          <div class="card-header">
-            <div class="card-title"><span style="color:var(--accent-pink)">🇰🇷</span> K-콘텐츠 TOP 10</div>
-            <span style="font-size:11px;color:var(--text-muted)">한국 콘텐츠만</span>
-          </div>
-          <div class="card-body" style="padding:8px 18px">
-            ${topK.length === 0
-              ? '<div class="empty-state"><i class="fas fa-search"></i><p>K-콘텐츠 없음</p></div>'
-              : topK.slice(0, 10).map((c, i) => `
-                <div class="rank-item">
-                  <div class="rank-num ${rankColor(i)}">${i + 1}</div>
-                  <div class="rank-info">
-                    <div class="rank-title">${escHtml(c.representativeTitle)}</div>
-                    <div class="rank-meta">
-                      ${contentTypeBadge(c.contentType)}
-                      ${c.actors?.length ? `<span>배우: ${c.actors.slice(0,2).join(', ')}</span>` : ''}
-                      ${c.platforms?.length ? `<span> · ${c.platforms.join('·')}</span>` : ''}
-                    </div>
-                  </div>
-                  <div class="rank-score">${fmtScore(c.finalScore)}pts</div>
-                </div>`).join('')}
+          ${platHeader('fas fa-star', 'Disney+', '#4f8ef7', disney)}
+          <div class="card-body" style="padding:4px 14px">
+            ${disney.length === 0
+              ? '<div class="plat-empty">데이터 없음</div>'
+              : disney.map((c, i) => rankItem(c, i,
+                  c.regions?.length ? `<span style="font-size:10px;color:var(--text-muted)">${c.regions[0]}</span>` : ''
+                )).join('')}
           </div>
         </div>
+
+        <!-- Apple TV+ TOP 5 -->
+        <div class="card">
+          ${platHeader('fab fa-apple', 'Apple TV+', '#a0a0a0', apple)}
+          <div class="card-body" style="padding:4px 14px">
+            ${apple.length === 0
+              ? '<div class="plat-empty">데이터 없음</div>'
+              : apple.map((c, i) => rankItem(c, i)).join('')}
+          </div>
+        </div>
+
+      </div>
+
+      <!-- 2행: Reddit 버즈 + MyDramaList 독점 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start">
+
+        <!-- Reddit 버즈 TOP 5 -->
+        <div class="card">
+          <div class="card-header" style="border-left:3px solid #ff6534">
+            <div class="card-title">
+              <i class="fab fa-reddit" style="color:#ff6534"></i> Reddit 버즈
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:10px;color:var(--text-muted)">댓글 수 기준</span>
+              <button class="btn btn-outline" style="padding:2px 8px;font-size:10px" onclick="navigateTo('reddit')">전체 보기</button>
+            </div>
+          </div>
+          <div class="card-body" style="padding:4px 14px">
+            ${redditBuzz.length === 0
+              ? '<div class="plat-empty">Reddit 데이터 없음</div>'
+              : redditBuzz.map((c, i) => {
+                  const rItems = c.rawItems?.filter(ri => ri.source === 'reddit') || []
+                  const totalComments = rItems.reduce((s, ri) => s + ri.commentCount, 0)
+                  const totalScore    = rItems.reduce((s, ri) => s + (ri.score || 0), 0)
+                  const postUrl  = rItems[0]?.metadata?.url || ''
+                  const sub      = rItems[0]?.metadata?.subreddit || ''
+                  return `
+                    <div class="plat-rank-item">
+                      <div class="rank-num ${rankColor(i)}">${i+1}</div>
+                      <div class="plat-rank-info">
+                        <div class="plat-rank-title">
+                          ${postUrl
+                            ? `<a href="${postUrl}" target="_blank" rel="noopener noreferrer" class="reddit-plat-link">${escHtml(c.representativeTitle)}</a>`
+                            : escHtml(c.representativeTitle)}
+                        </div>
+                        <div class="plat-rank-meta">
+                          ${c.isKContent ? '<span class="badge badge-k">K</span>' : ''}
+                          ${sub ? `<a href="https://reddit.com/r/${sub}" target="_blank" style="color:#ff6534;font-size:10px;text-decoration:none">r/${sub}</a>` : ''}
+                          <span style="font-size:10px;color:var(--text-muted)">▲${totalScore.toLocaleString()}</span>
+                        </div>
+                      </div>
+                      <div style="font-size:11px;color:#ff6534;white-space:nowrap;font-weight:600">
+                        💬 ${totalComments}
+                      </div>
+                    </div>`
+                }).join('')}
+          </div>
+        </div>
+
+        <!-- MyDramaList 독점 인기작 -->
+        <div class="card">
+          <div class="card-header" style="border-left:3px solid #9b59b6">
+            <div class="card-title">
+              <i class="fas fa-star" style="color:#9b59b6"></i> MyDramaList 인기작
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              ${mdlOnly.length ? `<span class="plat-k-ratio" style="background:#9b59b622;color:#9b59b6">K ${kRatio(mdlOnly)}%</span>` : ''}
+              <span style="font-size:10px;color:var(--text-muted)">스트리밍 미집계</span>
+            </div>
+          </div>
+          <div class="card-body" style="padding:4px 14px">
+            ${mdlOnly.length === 0
+              ? '<div class="plat-empty">모든 항목이 플랫폼에 포함됨</div>'
+              : mdlOnly.map((c, i) => {
+                  const mdlItem = c.rawItems?.find(ri => ri.source === 'mydramalist')
+                  const rating = mdlItem?.metadata?.rating
+                  const genres = c.genres?.slice(0,2).join(', ') || ''
+                  return `
+                    <div class="plat-rank-item">
+                      <div class="rank-num ${rankColor(i)}">${i+1}</div>
+                      <div class="plat-rank-info">
+                        <div class="plat-rank-title" title="${escHtml(c.representativeTitle)}">${escHtml(c.representativeTitle)}</div>
+                        <div class="plat-rank-meta">
+                          ${c.isKContent ? '<span class="badge badge-k">K</span>' : ''}
+                          ${contentTypeBadge(c.contentType)}
+                          ${rating ? `<span style="font-size:10px;color:#f1c40f">★ ${rating}</span>` : ''}
+                          ${genres ? `<span style="font-size:10px;color:var(--text-muted)">${genres}</span>` : ''}
+                        </div>
+                      </div>
+                      <div class="rank-score">${fmtScore(c.finalScore)}</div>
+                    </div>`
+                }).join('')}
+          </div>
+        </div>
+
       </div>
 
       <!-- Insights -->
