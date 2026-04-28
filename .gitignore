@@ -5,5 +5,5 @@ dist-crawler/
 *.log
 .env
 .dev.vars
+*.bak
 *.tar.gz
-.pm2/

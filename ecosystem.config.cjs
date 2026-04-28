@@ -11,12 +11,12 @@ module.exports = {
       instances: 1,
       exec_mode: 'fork',
     },
-    // ── 크롤러 서버 (Node.js + tsx) ──────────────────────────
+    // ── 크롤러 서버 (Node.js CJS - Playwright 실행) ──────────
     {
       name: 'crawler',
-      script: 'npx',
-      args: 'tsx src/server.ts',
-      cwd: '/home/user/crawler',
+      script: '/home/user/webapp/crawler-server.cjs',
+      interpreter: 'node',
+      cwd: '/home/user/webapp',
       env: { NODE_ENV: 'development', PORT: 3001 },
       watch: false,
       instances: 1,
