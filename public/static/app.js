@@ -3,8 +3,8 @@
 // ============================================================
 
 const API = {
-  health: () => fetch('/api/health').then(r => r.json()),
-  demo: (type = 'daily') => fetch('/api/crawl/demo', {
+  health:       () => fetch('/api/health').then(r => r.json()),
+  demo:  (type = 'daily') => fetch('/api/crawl/demo', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ type })
   }).then(r => r.json()),
@@ -12,11 +12,19 @@ const API = {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ type, sources })
   }).then(r => r.json()),
-  reports: (type = 'daily') => fetch(`/api/reports?type=${type}&limit=20`).then(r => r.json()),
+  scheduleTrigger: (type = 'daily', sources = ['reddit','flixpatrol','mydramalist']) => fetch('/api/schedule/trigger', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, sources })
+  }).then(r => r.json()),
+  reports:      (type = 'daily') => fetch(`/api/reports?type=${type}&limit=20`).then(r => r.json()),
   latestReport: (type = 'daily') => fetch(`/api/reports/latest/${type}`).then(r => r.json()),
-  report: (id) => fetch(`/api/reports/${id}`).then(r => r.json()),
-  logs: () => fetch('/api/logs').then(r => r.json()),
-  search: (q, kOnly = false) => fetch(`/api/search?q=${encodeURIComponent(q)}&konly=${kOnly}`).then(r => r.json()),
+  report:       (id) => fetch(`/api/reports/${id}`).then(r => r.json()),
+  deleteReport: (id) => fetch(`/api/reports/${id}`, { method: 'DELETE' }).then(r => r.json()),
+  logs:         () => fetch('/api/logs').then(r => r.json()),
+  search:       (q, kOnly = false) => fetch(`/api/search?q=${encodeURIComponent(q)}&konly=${kOnly}`).then(r => r.json()),
+  schedule:     () => fetch('/api/schedule').then(r => r.json()),
+  stats:        () => fetch('/api/stats').then(r => r.json()),
+  newsletterUrl:(id) => `/api/newsletter/${id}`,
 }
 
 // ============================================================
@@ -30,6 +38,8 @@ const state = {
   logs: [],
   crawling: false,
   crawlLogs: [],
+  stats: null,
+  schedule: null,
 }
 
 // ============================================================
@@ -49,6 +59,11 @@ function timeAgo(iso) {
 function fmtDate(iso) {
   if (!iso) return '-'
   return new Date(iso).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+function fmtDateFull(iso) {
+  if (!iso) return '-'
+  return new Date(iso).toLocaleString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 function fmtScore(n) {
@@ -86,10 +101,18 @@ function toast(msg, type = 'info') {
   setTimeout(() => el.remove(), 3500)
 }
 
-// ============================================================
-// Page Renderers
-// ============================================================
+function escHtml(str) {
+  if (!str) return ''
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
 
+// ============================================================
+// Page: Dashboard
+// ============================================================
 function renderDashboard() {
   const r = state.currentReport
   if (!r) {
@@ -100,8 +123,8 @@ function renderDashboard() {
           <div class="page-sub">K-Content 글로벌 팬 인텔리전스</div>
         </div>
         <div style="display:flex;gap:8px">
-          <button class="btn btn-outline" onclick="runDemo('daily')">데모 실행</button>
-          <button class="btn btn-primary" onclick="navigateTo('crawl')"><i class="fas fa-robot"></i> 크롤링 시작</button>
+          <button class="btn btn-outline" onclick="runDemo('daily')"><i class="fas fa-vial"></i> 데모 실행</button>
+          <button class="btn btn-primary" onclick="navigateTo('crawl')"><i class="fas fa-spider"></i> 크롤링 시작</button>
         </div>
       </div>
       <div style="padding:24px 28px">
@@ -125,18 +148,16 @@ function renderDashboard() {
       <div>
         <div class="page-title">📊 대시보드</div>
         <div class="page-sub">
-          ${r.reportType === 'daily' ? '일간' : '주간'} 리포트 · 생성: ${fmtDate(r.generatedAt)}
+          ${r.reportType === 'daily' ? '일간' : '주간'} 리포트 · ${fmtDateFull(r.generatedAt)}
         </div>
       </div>
-      <div style="display:flex;gap:8px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-outline" onclick="openNewsletter('${r.id}')">
+          <i class="fas fa-newspaper"></i> 뉴스레터
+        </button>
         <button class="btn btn-outline" onclick="runDemo('${state.reportType}')">
           <i class="fas fa-sync-alt"></i> 데모 새로고침
         </button>
-        ${state.currentReport ? `
-        <a href="/api/newsletter/${state.currentReport.id}" target="_blank"
-          class="btn btn-outline" style="text-decoration:none">
-          <i class="fas fa-envelope"></i> 뉴스레터
-        </a>` : ''}
         <button class="btn btn-primary" onclick="navigateTo('crawl')">
           <i class="fas fa-robot"></i> 크롤링
         </button>
@@ -160,18 +181,18 @@ function renderDashboard() {
         <div class="stat-card">
           <div class="stat-label">💡 인사이트</div>
           <div class="stat-value" style="color:var(--accent-green)">${r.insights?.length || 0}</div>
-          <div class="stat-change">자동 생성 인사이트</div>
+          <div class="stat-change">자동 생성</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">📡 수집 소스</div>
           <div class="stat-value" style="color:var(--accent-orange)">${r.sourceSummary?.length || 0}</div>
-          <div class="stat-change">${r.sourceSummary?.map(s => s.source).join(', ') || '-'}</div>
+          <div class="stat-change">${r.sourceSummary?.map(s => `${s.source}(${s.itemCount})`).join(' · ') || '-'}</div>
         </div>
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
 
-        <!-- Top Ranking -->
+        <!-- 전체 TOP 10 -->
         <div class="card">
           <div class="card-header">
             <div class="card-title"><i class="fas fa-trophy" style="color:#f1c40f"></i> 전체 TOP 10</div>
@@ -199,27 +220,28 @@ function renderDashboard() {
           </div>
         </div>
 
-        <!-- K-Content Top -->
+        <!-- K-Content TOP 10 -->
         <div class="card">
           <div class="card-header">
             <div class="card-title"><span style="color:var(--accent-pink)">🇰🇷</span> K-콘텐츠 TOP 10</div>
             <span style="font-size:11px;color:var(--text-muted)">한국 콘텐츠만</span>
           </div>
           <div class="card-body" style="padding:8px 18px">
-            ${topK.length === 0 ? '<div class="empty-state"><i class="fas fa-search"></i><p>K-콘텐츠 없음</p></div>' :
-              topK.slice(0, 10).map((c, i) => `
-              <div class="rank-item">
-                <div class="rank-num ${rankColor(i)}">${i + 1}</div>
-                <div class="rank-info">
-                  <div class="rank-title">${escHtml(c.representativeTitle)}</div>
-                  <div class="rank-meta">
-                    ${contentTypeBadge(c.contentType)}
-                    ${c.actors?.length ? `<span>배우: ${c.actors.slice(0,2).join(', ')}</span>` : ''}
-                    ${c.platforms?.length ? `<span>${c.platforms.join('·')}</span>` : ''}
+            ${topK.length === 0
+              ? '<div class="empty-state"><i class="fas fa-search"></i><p>K-콘텐츠 없음</p></div>'
+              : topK.slice(0, 10).map((c, i) => `
+                <div class="rank-item">
+                  <div class="rank-num ${rankColor(i)}">${i + 1}</div>
+                  <div class="rank-info">
+                    <div class="rank-title">${escHtml(c.representativeTitle)}</div>
+                    <div class="rank-meta">
+                      ${contentTypeBadge(c.contentType)}
+                      ${c.actors?.length ? `<span>배우: ${c.actors.slice(0,2).join(', ')}</span>` : ''}
+                      ${c.platforms?.length ? `<span> · ${c.platforms.join('·')}</span>` : ''}
+                    </div>
                   </div>
-                </div>
-                <div class="rank-score">${fmtScore(c.finalScore)}pts</div>
-              </div>`).join('')}
+                  <div class="rank-score">${fmtScore(c.finalScore)}pts</div>
+                </div>`).join('')}
           </div>
         </div>
       </div>
@@ -228,12 +250,13 @@ function renderDashboard() {
       <div class="card">
         <div class="card-header">
           <div class="card-title"><i class="fas fa-lightbulb" style="color:var(--accent-orange)"></i> 자동 인사이트</div>
+          <span style="font-size:11px;color:var(--text-muted)">${r.insights?.length || 0}개 생성됨</span>
         </div>
         <div class="card-body">
           ${(r.insights || []).map(ins => `
             <div class="insight-item ${ins.category}">
               <div class="insight-icon">${insightIcon(ins.category)}</div>
-              <div>
+              <div style="flex:1">
                 <div class="insight-text">${escHtml(ins.text)}</div>
                 <div class="insight-evidence">
                   ${(ins.evidence || []).map(e => `<span class="insight-chip">${escHtml(e)}</span>`).join('')}
@@ -247,50 +270,69 @@ function renderDashboard() {
       ${r.redditSummary ? `
       <div class="card">
         <div class="card-header">
-          <div class="card-title"><i class="fab fa-reddit" style="color:#ff6534"></i> Reddit 요약</div>
+          <div class="card-title"><i class="fab fa-reddit" style="color:#ff6534"></i> Reddit 커뮤니티 요약</div>
         </div>
         <div class="card-body">
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px">
             <div>
-              <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:10px">추천 요청</div>
+              <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:10px;font-weight:600">📋 추천 요청</div>
               ${(r.redditSummary.recommendations || []).slice(0,5).map(rec => `
-                <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px">
+                <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px">
                   <span>${escHtml(rec.title)}</span>
                   <span style="color:var(--text-muted)">${rec.count}회</span>
                 </div>`).join('')}
             </div>
             <div>
-              <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:10px">리뷰 언급</div>
+              <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:10px;font-weight:600">⭐ 리뷰 언급</div>
               ${(r.redditSummary.reviews || []).slice(0,5).map(rev => `
-                <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px">
+                <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px">
                   <span>${escHtml(rev.title)}</span>
                   <span class="badge ${rev.sentiment === 'positive' ? 'badge-success' : rev.sentiment === 'negative' ? 'badge-failed' : 'badge-new'}">${rev.sentiment}</span>
                 </div>`).join('')}
             </div>
             <div>
-              <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:10px">문화 질문</div>
+              <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:10px;font-weight:600">🌏 문화 질문</div>
               ${(r.redditSummary.culturalQuestions || []).slice(0,5).map(q => `
-                <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px">
+                <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px">
                   <span>${escHtml(q.topic)}</span>
                   <span style="color:var(--text-muted)">${q.count}회</span>
                 </div>`).join('')}
             </div>
           </div>
+          ${r.redditSummary.hotPosts?.length ? `
+          <div style="margin-top:16px;border-top:1px solid rgba(255,255,255,0.06);padding-top:14px">
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:10px">🔥 인기 포스트</div>
+            ${(r.redditSummary.hotPosts || []).slice(0,3).map(p => `
+              <div class="reddit-post">
+                <div class="reddit-title">${escHtml(p.title)}</div>
+                <div class="reddit-meta">
+                  <span style="color:#ff6534">r/${p.subreddit}</span>
+                  <span>▲ ${p.score}</span>
+                  <span>💬 ${p.commentCount}</span>
+                  <span>${timeAgo(p.createdAt)}</span>
+                  ${p.flair ? `<span class="badge badge-new">${escHtml(p.flair)}</span>` : ''}
+                </div>
+              </div>`).join('')}
+          </div>` : ''}
         </div>
       </div>` : ''}
 
     </div>`
 }
 
+// ============================================================
+// Page: Ranking
+// ============================================================
 function renderRanking() {
   const r = state.currentReport
   if (!r) return renderNoReport()
 
   const activeTab = window._rankTab || 'all'
   let items = r.topContents || []
-  if (activeTab === 'k') items = items.filter(c => c.isKContent)
-  if (activeTab === 'reddit') items = items.filter(c => c.sources.includes('reddit'))
+  if (activeTab === 'k')          items = items.filter(c => c.isKContent)
+  if (activeTab === 'reddit')     items = items.filter(c => c.sources.includes('reddit'))
   if (activeTab === 'flixpatrol') items = items.filter(c => c.sources.includes('flixpatrol'))
+  if (activeTab === 'multi')      items = items.filter(c => c.sources.length >= 2)
   const maxScore = items[0]?.finalScore || 1
 
   return `
@@ -301,16 +343,14 @@ function renderRanking() {
       </div>
     </div>
     <div style="padding:20px 28px">
-      <div style="display:flex;gap:8px;margin-bottom:16px">
+      <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center">
         <div class="tabs" style="width:fit-content">
-          ${[['all','전체'],['k','K-콘텐츠'],['reddit','Reddit'],['flixpatrol','FlixPatrol']].map(([tab, label]) =>
+          ${[['all','전체'],['k','🇰🇷 K-콘텐츠'],['multi','멀티소스'],['reddit','Reddit'],['flixpatrol','FlixPatrol']].map(([tab, label]) =>
             `<button class="tab-btn ${activeTab===tab?'active':''}" onclick="setRankTab('${tab}')">${label}</button>`
           ).join('')}
         </div>
         <div style="flex:1"></div>
-        <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted)">
-          총 ${items.length}개
-        </div>
+        <span style="font-size:12px;color:var(--text-muted)">총 ${items.length}개</span>
       </div>
 
       <div class="card">
@@ -339,7 +379,7 @@ function renderRanking() {
                   <td>${contentTypeBadge(c.contentType) || '<span style="color:var(--text-muted)">-</span>'}</td>
                   <td>
                     <div style="display:flex;gap:4px;flex-wrap:wrap">
-                      ${c.sources.map(s => `<span style="font-size:11px;color:${sourceColor(s)}">${s}</span>`).join('<span style="color:var(--text-muted)">·</span>')}
+                      ${c.sources.map(s => `<span style="font-size:11px;color:${sourceColor(s)}">${s}</span>`).join('<span style="color:var(--text-muted)"> · </span>')}
                     </div>
                   </td>
                   <td style="font-size:11px;color:var(--text-muted)">${c.platforms?.join(', ') || '-'}</td>
@@ -358,6 +398,9 @@ function renderRanking() {
     </div>`
 }
 
+// ============================================================
+// Page: Crawl
+// ============================================================
 function renderCrawl() {
   return `
     <div class="page-header">
@@ -368,7 +411,6 @@ function renderCrawl() {
     </div>
     <div style="padding:20px 28px;display:flex;flex-direction:column;gap:20px">
 
-      <!-- 소스 선택 -->
       <div class="card">
         <div class="card-header">
           <div class="card-title"><i class="fas fa-cog"></i> 크롤링 설정</div>
@@ -376,9 +418,9 @@ function renderCrawl() {
         <div class="card-body">
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
             ${[
-              ['reddit', 'fab fa-reddit', '#ff6534', 'Reddit', 'r/kdramas, r/kdrama 등 5개 서브레딧'],
-              ['flixpatrol', 'fas fa-film', '#4f8ef7', 'FlixPatrol', 'Netflix·Disney+ 글로벌 순위'],
-              ['mydramalist', 'fas fa-star', '#9b59b6', 'MyDramaList', '한국 드라마 인기 순위'],
+              ['reddit',      'fab fa-reddit', '#ff6534',  'Reddit',      'r/kdramas, r/kdrama 등 5개 서브레딧'],
+              ['flixpatrol',  'fas fa-film',   '#4f8ef7',  'FlixPatrol',  'Netflix·Disney+ 글로벌 순위'],
+              ['mydramalist', 'fas fa-star',   '#9b59b6',  'MyDramaList', '한국 드라마 인기 순위'],
             ].map(([id, icon, color, label, desc]) => `
               <label style="cursor:pointer">
                 <div class="card" style="padding:14px;border-color:${color}33;transition:all 0.2s" id="src-${id}-card">
@@ -395,8 +437,8 @@ function renderCrawl() {
 
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
             <div class="tabs" style="width:fit-content">
-              <button class="tab-btn active" id="type-daily" onclick="setCrawlType('daily')">일간</button>
-              <button class="tab-btn" id="type-weekly" onclick="setCrawlType('weekly')">주간</button>
+              <button class="tab-btn active" id="type-daily"  onclick="setCrawlType('daily')">일간</button>
+              <button class="tab-btn"        id="type-weekly" onclick="setCrawlType('weekly')">주간</button>
             </div>
             <button class="btn btn-primary" id="crawl-btn" onclick="startCrawl()">
               <i class="fas fa-spider"></i> 실제 크롤링 시작
@@ -404,20 +446,20 @@ function renderCrawl() {
             <button class="btn btn-outline" onclick="runDemo(window._crawlType||'daily')">
               <i class="fas fa-vial"></i> 데모 데이터로 실행
             </button>
-            <div id="crawl-status" style="font-size:12px;color:var(--text-muted)"></div>
           </div>
         </div>
       </div>
 
-      <!-- 크롤링 로그 -->
+      <!-- 실행 로그 -->
       <div class="card">
         <div class="card-header">
           <div class="card-title"><i class="fas fa-terminal"></i> 실행 로그</div>
           <button class="btn btn-outline" style="padding:4px 10px;font-size:11px" onclick="loadLogs()">새로고침</button>
         </div>
-        <div class="card-body" id="crawl-log-area" style="min-height:120px;max-height:300px;overflow-y:auto;font-family:monospace;font-size:12px">
-          ${state.crawlLogs.length === 0 ?
-            '<div class="empty-state"><i class="fas fa-terminal"></i><p>크롤링을 시작하면 여기에 로그가 표시됩니다</p></div>'
+        <div class="card-body" id="crawl-log-area"
+          style="min-height:120px;max-height:280px;overflow-y:auto;font-family:monospace;font-size:12px;background:rgba(0,0,0,0.2);border-radius:8px;padding:12px">
+          ${state.crawlLogs.length === 0
+            ? '<div class="empty-state" style="padding:24px"><i class="fas fa-terminal"></i><p>크롤링을 시작하면 여기에 로그가 표시됩니다</p></div>'
             : state.crawlLogs.map(l => `<div class="log-line ${l.type||'info'}">${escHtml(l.msg)}</div>`).join('')}
         </div>
       </div>
@@ -434,6 +476,9 @@ function renderCrawl() {
     </div>`
 }
 
+// ============================================================
+// Page: History (Archive)
+// ============================================================
 function renderHistory() {
   return `
     <div class="page-header">
@@ -441,14 +486,11 @@ function renderHistory() {
         <div class="page-title">📁 리포트 아카이브</div>
         <div class="page-sub">생성된 모든 리포트 목록</div>
       </div>
-      <div style="display:flex;gap:8px;align-items:center">
+      <div style="display:flex;gap:8px">
         <div class="tabs" style="width:fit-content">
-          <button class="tab-btn ${state.reportType==='daily'?'active':''}" onclick="setHistoryType('daily')">일간</button>
+          <button class="tab-btn ${state.reportType==='daily'?'active':''}"  onclick="setHistoryType('daily')">일간</button>
           <button class="tab-btn ${state.reportType==='weekly'?'active':''}" onclick="setHistoryType('weekly')">주간</button>
         </div>
-        <a href="/api/newsletter?type=${state.reportType}" target="_blank" class="btn btn-outline" style="text-decoration:none">
-          <i class="fas fa-envelope"></i> 최신 뉴스레터
-        </a>
       </div>
     </div>
     <div style="padding:20px 28px">
@@ -460,6 +502,9 @@ function renderHistory() {
     </div>`
 }
 
+// ============================================================
+// Page: Search
+// ============================================================
 function renderSearch() {
   return `
     <div class="page-header">
@@ -476,7 +521,7 @@ function renderSearch() {
               style="flex:1;padding:10px 14px;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:14px;outline:none"
               onkeydown="if(event.key==='Enter')doSearch()"
               oninput="if(this.value.length===0)clearSearch()">
-            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer;white-space:nowrap">
               <input type="checkbox" id="konly-check" style="accent-color:var(--accent-pink)"> K-콘텐츠만
             </label>
             <button class="btn btn-primary" onclick="doSearch()"><i class="fas fa-search"></i> 검색</button>
@@ -492,13 +537,122 @@ function renderSearch() {
     </div>`
 }
 
+// ============================================================
+// Page: Schedule
+// ============================================================
+function renderSchedule() {
+  const s = state.schedule
+  return `
+    <div class="page-header">
+      <div>
+        <div class="page-title">⏰ 스케줄 & 자동화</div>
+        <div class="page-sub">크롤링 일정 관리 및 수동 트리거</div>
+      </div>
+      <button class="btn btn-outline" onclick="loadSchedule()"><i class="fas fa-sync-alt"></i> 새로고침</button>
+    </div>
+    <div style="padding:20px 28px;display:flex;flex-direction:column;gap:20px">
+
+      <!-- 스케줄 정보 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="fas fa-sun" style="color:var(--accent-orange)"></i> 일간 스케줄</div>
+            <span class="badge badge-success">활성</span>
+          </div>
+          <div class="card-body">
+            <div style="font-size:22px;font-weight:700;color:var(--accent-blue);margin-bottom:6px">매일 오전 9시</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Reddit + FlixPatrol + MyDramaList</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">다음 실행</div>
+            <div style="font-size:13px;color:var(--text-primary)">${s ? fmtDateFull(s.nextDaily) : '-'}</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="fas fa-calendar-week" style="color:var(--accent-purple)"></i> 주간 스케줄</div>
+            <span class="badge badge-success">활성</span>
+          </div>
+          <div class="card-body">
+            <div style="font-size:22px;font-weight:700;color:var(--accent-purple);margin-bottom:6px">매주 월요일 오전 8시</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">전체 소스 종합 리포트</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">다음 실행</div>
+            <div style="font-size:13px;color:var(--text-primary)">${s ? fmtDateFull(s.nextWeekly) : '-'}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 수동 트리거 -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="fas fa-hand-pointer"></i> 수동 트리거</div>
+        </div>
+        <div class="card-body">
+          <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+            <button class="btn btn-primary" id="trigger-daily-btn" onclick="triggerSchedule('daily')">
+              <i class="fas fa-play"></i> 일간 크롤링 실행
+            </button>
+            <button class="btn btn-outline" id="trigger-weekly-btn" onclick="triggerSchedule('weekly')">
+              <i class="fas fa-calendar"></i> 주간 크롤링 실행
+            </button>
+            <button class="btn btn-outline" onclick="runDemo('daily')">
+              <i class="fas fa-vial"></i> 데모 실행
+            </button>
+            <div id="trigger-status" style="font-size:12px;color:var(--text-muted)"></div>
+          </div>
+          <div id="trigger-log" style="margin-top:14px;font-family:monospace;font-size:12px;background:rgba(0,0,0,0.2);border-radius:8px;padding:12px;min-height:60px;display:none"></div>
+        </div>
+      </div>
+
+      <!-- 최근 크롤링 이력 -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="fas fa-history"></i> 최근 실행 이력</div>
+        </div>
+        <div class="card-body" style="padding:0" id="schedule-log-table">
+          ${s && s.lastRuns?.length ? renderLogTable(s.lastRuns)
+            : '<div class="empty-state"><i class="fas fa-history"></i><p>실행 이력 없음</p></div>'}
+        </div>
+      </div>
+
+      <!-- 시스템 통계 -->
+      <div class="card" id="stats-card">
+        <div class="card-header">
+          <div class="card-title"><i class="fas fa-chart-bar"></i> 시스템 통계</div>
+        </div>
+        <div class="card-body">
+          <div class="loading-overlay"><div class="spinner"></div> 로딩 중...</div>
+        </div>
+      </div>
+    </div>`
+}
+
+function renderLogTable(logs) {
+  if (!logs?.length) return '<div class="empty-state"><i class="fas fa-history"></i><p>이력 없음</p></div>'
+  return `
+    <table class="data-table">
+      <thead><tr><th>소스</th><th>수집 시각</th><th>아이템 수</th><th>상태</th><th>오류</th></tr></thead>
+      <tbody>
+        ${logs.map(l => `
+          <tr>
+            <td><span style="color:${sourceColor(l.source)}">${l.source}</span></td>
+            <td style="color:var(--text-muted)">${fmtDate(l.crawled_at)}</td>
+            <td style="font-weight:600">${l.item_count}</td>
+            <td><span class="badge ${l.status === 'success' ? 'badge-success' : 'badge-failed'}">${l.status}</span></td>
+            <td style="font-size:11px;color:#e74c3c;max-width:180px;overflow:hidden;text-overflow:ellipsis">${l.error || '-'}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`
+}
+
 function renderNoReport() {
   return `
     <div style="padding:28px">
       <div class="empty-state">
         <i class="fas fa-database"></i>
-        <p>아직 리포트가 없습니다. 크롤링을 먼저 실행해주세요.</p>
-        <button class="btn btn-primary" style="margin-top:16px" onclick="navigateTo('crawl')">크롤링 시작</button>
+        <p>아직 리포트가 없습니다. 먼저 크롤링 또는 데모를 실행해주세요.</p>
+        <div style="margin-top:16px;display:flex;gap:10px;justify-content:center">
+          <button class="btn btn-primary" onclick="runDemo('daily')"><i class="fas fa-vial"></i> 데모 실행</button>
+          <button class="btn btn-outline" onclick="navigateTo('crawl')">크롤링 시작</button>
+        </div>
       </div>
     </div>`
 }
@@ -509,9 +663,9 @@ function renderNoReport() {
 function navigateTo(page) {
   state.page = page
   render()
-  // 페이지별 초기 데이터 로드
-  if (page === 'crawl') setTimeout(loadLogs, 100)
-  if (page === 'history') setTimeout(loadHistory, 100)
+  if (page === 'crawl')    setTimeout(loadLogs, 100)
+  if (page === 'history')  setTimeout(loadHistory, 100)
+  if (page === 'schedule') setTimeout(loadSchedule, 100)
 }
 
 function setRankTab(tab) {
@@ -543,12 +697,8 @@ function updateSourceCard(id) {
 async function loadLatestReport() {
   try {
     const res = await API.latestReport(state.reportType)
-    if (res.ok && res.report) {
-      state.currentReport = res.report
-    }
-  } catch (e) {
-    console.warn('최신 리포트 로드 실패:', e)
-  }
+    if (res.ok && res.report) state.currentReport = res.report
+  } catch (e) { console.warn('최신 리포트 로드 실패:', e) }
 }
 
 async function runDemo(type = 'daily') {
@@ -597,12 +747,12 @@ async function startCrawl() {
   try {
     const res = await API.crawl(type, sources)
     if (res.ok) {
-      state.currentReport = res.report;
-      (res.logs || []).forEach(l => addLog(l, 'success'))
+      state.currentReport = res.report
+      ;(res.logs || []).forEach(l => addLog(l, 'success'))
       addLog(`✅ 완료! 클러스터: ${res.report.topContents?.length}개`, 'success')
       toast('크롤링 완료!', 'success')
     } else {
-      (res.logs || []).forEach(l => addLog(l, 'info'))
+      ;(res.logs || []).forEach(l => addLog(l, 'info'))
       addLog('❌ 오류: ' + (res.error || ''), 'error')
       toast('크롤링 실패: ' + (res.error || ''), 'error')
     }
@@ -615,31 +765,56 @@ async function startCrawl() {
   }
 }
 
+async function triggerSchedule(type) {
+  const btnId = `trigger-${type}-btn`
+  const btn = document.getElementById(btnId)
+  const statusEl = document.getElementById('trigger-status')
+  const logEl = document.getElementById('trigger-log')
+
+  if (btn) { btn.disabled = true; btn.innerHTML = '<div class="spinner"></div> 실행 중...' }
+  if (statusEl) statusEl.textContent = `${type === 'daily' ? '일간' : '주간'} 크롤링 실행 중...`
+  if (logEl) { logEl.style.display = 'block'; logEl.innerHTML = '' }
+
+  const addLog = (msg, cls = 'info') => {
+    if (!logEl) return
+    const d = document.createElement('div')
+    d.className = `log-line ${cls}`
+    d.textContent = `[${new Date().toLocaleTimeString('ko-KR')}] ${msg}`
+    logEl.appendChild(d)
+    logEl.scrollTop = logEl.scrollHeight
+  }
+  addLog(`스케줄 트리거: ${type}`)
+
+  try {
+    const res = await API.scheduleTrigger(type)
+    if (res.ok) {
+      ;(res.logs || []).forEach(l => addLog(l, 'success'))
+      addLog(`✅ 완료 (${res.elapsed}s) - reportId: ${res.reportId}`, 'success')
+      if (statusEl) statusEl.textContent = `✅ 완료!`
+      toast('스케줄 크롤링 완료!', 'success')
+      // 최신 리포트 갱신
+      await loadLatestReport()
+    } else {
+      ;(res.logs || []).forEach(l => addLog(l, 'info'))
+      addLog('❌ 실패: ' + (res.error || ''), 'error')
+      if (statusEl) statusEl.textContent = '❌ 실패'
+      toast('크롤링 실패', 'error')
+    }
+  } catch (e) {
+    addLog('❌ 연결 오류: ' + e.message, 'error')
+    toast('서버 오류', 'error')
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = type === 'daily' ? '<i class="fas fa-play"></i> 일간 크롤링 실행' : '<i class="fas fa-calendar"></i> 주간 크롤링 실행' }
+  }
+}
+
 async function loadLogs() {
   const el = document.getElementById('log-table')
   if (!el) return
   try {
     const res = await API.logs()
-    if (res.ok && res.logs?.length) {
-      el.innerHTML = `
-        <table class="data-table">
-          <thead><tr>
-            <th>소스</th><th>수집 시각</th><th>아이템 수</th><th>상태</th><th>오류</th>
-          </tr></thead>
-          <tbody>
-            ${res.logs.map(l => `
-              <tr>
-                <td><span style="color:${sourceColor(l.source)}">${l.source}</span></td>
-                <td style="color:var(--text-muted)">${fmtDate(l.crawled_at)}</td>
-                <td style="font-weight:600">${l.item_count}</td>
-                <td><span class="badge ${l.status === 'success' ? 'badge-success' : 'badge-failed'}">${l.status}</span></td>
-                <td style="font-size:11px;color:#e74c3c">${l.error || '-'}</td>
-              </tr>`).join('')}
-          </tbody>
-        </table>`
-    } else {
-      el.innerHTML = '<div class="empty-state"><i class="fas fa-history"></i><p>크롤링 이력 없음</p></div>'
-    }
+    el.innerHTML = res.ok && res.logs?.length ? renderLogTable(res.logs)
+      : '<div class="empty-state"><i class="fas fa-history"></i><p>크롤링 이력 없음</p></div>'
   } catch (e) {
     el.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>로딩 실패</p></div>`
   }
@@ -660,15 +835,18 @@ async function loadHistory() {
                 <td><span class="badge ${r.report_type === 'daily' ? 'badge-drama' : 'badge-new'}">${r.report_type === 'daily' ? '일간' : '주간'}</span></td>
                 <td>${fmtDate(r.generated_at)}</td>
                 <td style="font-size:11px;color:var(--text-muted)">${fmtDate(r.period_from)} ~ ${fmtDate(r.period_to)}</td>
-                <td style="display:flex;gap:6px">
-                  <button class="btn btn-outline" style="padding:4px 10px;font-size:11px"
-                    onclick="loadAndShowReport('${r.id}')">
-                    <i class="fas fa-eye"></i> 보기
-                  </button>
-                  <a href="/api/newsletter/${r.id}" target="_blank"
-                    class="btn btn-outline" style="padding:4px 10px;font-size:11px;text-decoration:none">
-                    <i class="fas fa-envelope"></i> 뉴스레터
-                  </a>
+                <td>
+                  <div style="display:flex;gap:6px">
+                    <button class="btn btn-outline" style="padding:4px 10px;font-size:11px" onclick="loadAndShowReport('${r.id}')">
+                      <i class="fas fa-eye"></i> 보기
+                    </button>
+                    <button class="btn btn-outline" style="padding:4px 10px;font-size:11px" onclick="openNewsletter('${r.id}')">
+                      <i class="fas fa-newspaper"></i> 뉴스레터
+                    </button>
+                    <button class="btn btn-danger" style="padding:4px 10px;font-size:11px" onclick="deleteReport('${r.id}')">
+                      <i class="fas fa-trash"></i>
+                    </button>
+                  </div>
                 </td>
               </tr>`).join('')}
           </tbody>
@@ -681,6 +859,43 @@ async function loadHistory() {
   }
 }
 
+async function loadSchedule() {
+  try {
+    const res = await API.schedule()
+    if (res.ok) { state.schedule = res; renderPage() }
+  } catch (e) { console.warn('스케줄 로드 실패:', e) }
+
+  // 통계도 로드
+  try {
+    const statsEl = document.getElementById('stats-card')?.querySelector('.card-body')
+    const res = await API.stats()
+    if (res.ok && statsEl) {
+      const st = res.stats
+      statsEl.innerHTML = `
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-label">📋 총 리포트</div>
+            <div class="stat-value" style="color:var(--accent-blue)">${st.totalReports}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">🎬 총 스냅샷</div>
+            <div class="stat-value" style="color:var(--accent-green)">${st.totalSnapshots}</div>
+            <div class="stat-change">K-콘텐츠 ${st.kRatio}%</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">🔄 크롤링 횟수</div>
+            <div class="stat-value" style="color:var(--accent-orange)">${st.totalCrawls}</div>
+            <div class="stat-change">성공률 ${st.successRate}%</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">🇰🇷 K-스냅샷</div>
+            <div class="stat-value" style="color:var(--accent-pink)">${st.kSnapshots}</div>
+          </div>
+        </div>`
+    }
+  } catch (e) { console.warn('통계 로드 실패:', e) }
+}
+
 async function loadAndShowReport(id) {
   try {
     const res = await API.report(id)
@@ -689,9 +904,22 @@ async function loadAndShowReport(id) {
       navigateTo('dashboard')
       toast('리포트를 불러왔습니다', 'success')
     }
-  } catch (e) {
-    toast('리포트 로딩 실패', 'error')
-  }
+  } catch (e) { toast('리포트 로딩 실패', 'error') }
+}
+
+async function deleteReport(id) {
+  if (!confirm('이 리포트를 삭제하시겠습니까?')) return
+  try {
+    const res = await API.deleteReport(id)
+    if (res.ok) {
+      toast('삭제 완료', 'success')
+      loadHistory()
+    } else toast('삭제 실패', 'error')
+  } catch (e) { toast('삭제 실패', 'error') }
+}
+
+function openNewsletter(id) {
+  window.open(API.newsletterUrl(id), '_blank')
 }
 
 async function doSearch() {
@@ -726,7 +954,7 @@ async function doSearch() {
       el.innerHTML = `<div class="empty-state"><i class="fas fa-search"></i><p>"${escHtml(q)}" 검색 결과 없음</p></div>`
     }
   } catch (e) {
-    el.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>검색 실패: ${e.message}</p></div>`
+    el.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>검색 실패</p></div>`
   }
 }
 
@@ -736,15 +964,16 @@ function clearSearch() {
 }
 
 // ============================================================
-// Sidebar render
+// Sidebar
 // ============================================================
 function renderSidebar() {
   const nav = [
-    ['dashboard', 'fas fa-chart-pie', '대시보드'],
-    ['ranking', 'fas fa-trophy', '콘텐츠 랭킹'],
-    ['crawl', 'fas fa-spider', '크롤링'],
-    ['history', 'fas fa-folder-open', '아카이브'],
-    ['search', 'fas fa-search', '검색'],
+    ['dashboard', 'fas fa-chart-pie',    '대시보드'],
+    ['ranking',   'fas fa-trophy',        '콘텐츠 랭킹'],
+    ['crawl',     'fas fa-spider',        '크롤링'],
+    ['schedule',  'fas fa-clock',         '스케줄'],
+    ['history',   'fas fa-folder-open',   '아카이브'],
+    ['search',    'fas fa-search',        '검색'],
   ]
   return `
     <div class="sidebar" id="sidebar">
@@ -762,7 +991,7 @@ function renderSidebar() {
       </div>
       <div style="flex:1"></div>
       <div style="padding:12px 16px;border-top:1px solid var(--border)">
-        <div style="font-size:10px;color:var(--text-muted)">K-Content Intelligence Dashboard v1.0</div>
+        <div style="font-size:10px;color:var(--text-muted)">K-Content Intelligence v1.0</div>
         ${state.currentReport ? `
           <div style="font-size:10px;color:var(--accent-green);margin-top:4px">
             ● 데이터 로드됨 · ${state.currentReport.topContents?.length}개 콘텐츠
@@ -778,10 +1007,11 @@ function renderSidebar() {
 function renderPage() {
   const pages = {
     dashboard: renderDashboard,
-    ranking: renderRanking,
-    crawl: renderCrawl,
-    history: renderHistory,
-    search: renderSearch,
+    ranking:   renderRanking,
+    crawl:     renderCrawl,
+    history:   renderHistory,
+    search:    renderSearch,
+    schedule:  renderSchedule,
   }
   const fn = pages[state.page] || renderDashboard
   document.getElementById('page-content').innerHTML = fn()
@@ -790,15 +1020,6 @@ function renderPage() {
 function render() {
   document.getElementById('sidebar-wrap').innerHTML = renderSidebar()
   renderPage()
-}
-
-function escHtml(str) {
-  if (!str) return ''
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
 }
 
 // ============================================================
@@ -812,18 +1033,16 @@ async function init() {
 
   render()
 
-  // 최신 리포트 로드 시도
   await loadLatestReport()
   if (state.currentReport) {
     toast('최신 리포트 로드 완료', 'success')
     render()
   } else {
-    // 리포트 없으면 자동 데모 실행
     await runDemo('daily')
   }
 }
 
 window._crawlType = 'daily'
-window._rankTab = 'all'
+window._rankTab   = 'all'
 
 document.addEventListener('DOMContentLoaded', init)
