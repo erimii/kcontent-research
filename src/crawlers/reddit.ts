@@ -1,6 +1,10 @@
 // ============================================================
-// Reddit 크롤러 - RSS 피드 + Pullpush API 하이브리드
-// IP 차단 우회: HTML 직접 파싱 대신 공개 RSS/API 사용
+// Reddit 크롤러 - RSS hot + new 피드 (1주 이내 데이터만)
+// - Pullpush 제거: 최신 데이터 없음 (354일 전)
+// - hot.rss + new.rss 병행으로 1주 이내 포스트 확보
+// - Reddit RSS는 score를 제공하지 않으므로:
+//   → 댓글 RSS 수집 후 실제 댓글 entry 수를 commentCount로 사용
+//   → score = commentCount * 10 + recencyBonus 로 재산정
 // ============================================================
 
 import type { RedditPost } from '../types/index.js'
@@ -8,121 +12,100 @@ import { isKoreanRedditPost } from '../pipeline/korean-filter.js'
 
 const DEFAULT_SUBREDDITS = ['kdramas', 'kdrama', 'kdramarecommends', 'korean', 'koreatravel']
 
+const ONE_WEEK_SEC = 7 * 24 * 60 * 60
+
 // ============================================================
-// RSS 파싱 (핫 포스트 기준)
+// RSS 피드 파싱 (hot / new 공통)
 // ============================================================
-async function fetchRSS(subreddit: string): Promise<RedditPost[]> {
-  const url = `https://www.reddit.com/r/${subreddit}/hot.rss?limit=25`
+async function fetchRSS(subreddit: string, sort: 'hot' | 'new'): Promise<RedditPost[]> {
+  const url = `https://www.reddit.com/r/${subreddit}/${sort}.rss?limit=25`
   const res = await fetch(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
       'Accept': 'application/atom+xml, application/rss+xml, */*',
     },
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(12000),
   })
 
-  if (!res.ok) throw new Error(`RSS HTTP ${res.status}`)
+  if (!res.ok) throw new Error(`RSS ${sort} HTTP ${res.status}`)
   const text = await res.text()
 
+  const nowSec = Date.now() / 1000
+  const cutoff = nowSec - ONE_WEEK_SEC
   const entries: RedditPost[] = []
-
-  // Atom feed 파싱 (정규식으로 XML 추출)
   const entryRegex = /<entry>([\s\S]*?)<\/entry>/g
   let m: RegExpExecArray | null
 
   while ((m = entryRegex.exec(text)) !== null) {
     const entry = m[1]
     const title = decodeEntities(entry.match(/<title[^>]*>([\s\S]*?)<\/title>/)?.[1]?.trim() || '')
-    const link = entry.match(/<link rel="alternate"[^>]+href="([^"]+)"/)?.[1] ||
-                 entry.match(/<id>(https?:\/\/[^<]+)<\/id>/)?.[1] || ''
-    const published = entry.match(/<published>(.*?)<\/published>/)?.[1] ||
-                      entry.match(/<updated>(.*?)<\/updated>/)?.[1] || new Date().toISOString()
 
-    // ID 추출 (URL에서)
+    // 핀/공지 제외
+    if (!title || /\[pinned\]|\[mod post\]|\[announcement\]/i.test(title)) continue
+
+    const published =
+      entry.match(/<published>(.*?)<\/published>/)?.[1] ||
+      entry.match(/<updated>(.*?)<\/updated>/)?.[1] || ''
+
+    // 1주 이내만 허용
+    const postSec = published ? new Date(published).getTime() / 1000 : 0
+    if (postSec && postSec < cutoff) continue
+
+    const link =
+      entry.match(/<link rel="alternate"[^>]+href="([^"]+)"/)?.[1] ||
+      entry.match(/<id>(https?:\/\/[^<]+)<\/id>/)?.[1] || ''
+
     const idMatch = link.match(/comments\/([a-z0-9]+)\//)
-    const id = idMatch?.[1] || `rss_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
-
-    // 댓글수: content에서 파싱
-    const content = entry.match(/<content[^>]*>([\s\S]*?)<\/content>/)?.[1] || ''
-    const commentMatch = content.match(/(\d+)\s*comment/)
-    const commentCount = commentMatch ? parseInt(commentMatch[1]) : 0
-
-    // 점수: score 태그나 content에서 파싱
-    const scoreMatch = content.match(/score[^>]*>(\d+)</)
-    const score = scoreMatch ? parseInt(scoreMatch[1]) : 1
+    const id = idMatch?.[1] || `rss_${sort}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
 
     const flair = entry.match(/<category[^>]+label="([^"]+)"/)?.[1]
 
-    if (title && link && !title.toLowerCase().includes('[pinned]') && !title.toLowerCase().includes('[mod post]')) {
-      entries.push({
-        id,
-        subreddit,
-        title,
-        url: link,
-        score,
-        commentCount,
-        createdAt: new Date(published).toISOString(),
-        comments: [],
-        flair,
-      })
-    }
+    // 최신성 보너스: 24시간 이내=100, 3일=50, 7일=10
+    const ageSec = nowSec - postSec
+    const recencyScore = ageSec < 86400 ? 100 : ageSec < 259200 ? 50 : 10
+
+    entries.push({
+      id,
+      subreddit,
+      title,
+      url: link,
+      score: recencyScore,    // RSS에 score 없음 → 최신성으로 대체 (댓글 수집 후 재산정)
+      commentCount: 0,        // 댓글 RSS 수집 후 업데이트
+      createdAt: published ? new Date(published).toISOString() : new Date().toISOString(),
+      comments: [],
+      flair,
+    })
   }
 
   return entries
 }
 
 // ============================================================
-// Pullpush API (최근 인기 포스트, 점수/댓글 정보 풍부)
+// 댓글 RSS 수집: 댓글 body + 실제 댓글 수 파악
 // ============================================================
-async function fetchPullpush(subreddit: string): Promise<RedditPost[]> {
-  const url = `https://api.pullpush.io/reddit/search/submission/?subreddit=${subreddit}&limit=25&sort=score`
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'KContentResearch/1.0' },
-    signal: AbortSignal.timeout(15000),
-  })
-
-  if (!res.ok) throw new Error(`Pullpush HTTP ${res.status}`)
-  const data = await res.json() as { data?: any[] }
-
-  return (data.data || []).map((p: any) => ({
-    id: p.id || `pp_${Date.now()}`,
-    subreddit: p.subreddit || subreddit,
-    title: p.title || '',
-    url: p.url || `https://www.reddit.com/r/${subreddit}/comments/${p.id}/`,
-    score: p.score || 0,
-    commentCount: p.num_comments || 0,
-    createdAt: p.created_utc
-      ? new Date(p.created_utc * 1000).toISOString()
-      : new Date().toISOString(),
-    comments: [],
-    flair: p.link_flair_text || undefined,
-  })).filter((p: RedditPost) => p.title.length > 0)
-}
-
-// ============================================================
-// 댓글 수집: RSS 댓글 피드
-// ============================================================
-async function fetchCommentsRSS(post: RedditPost): Promise<RedditPost['comments']> {
+async function fetchCommentsRSS(post: RedditPost): Promise<{ comments: RedditPost['comments'], count: number }> {
   try {
-    const url = `https://www.reddit.com/r/${post.subreddit}/comments/${post.id}.rss?limit=10`
+    const url = `https://www.reddit.com/r/${post.subreddit}/comments/${post.id}.rss?limit=25`
     const res = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
       },
       signal: AbortSignal.timeout(10000),
     })
-    if (!res.ok) return []
+    if (!res.ok) return { comments: [], count: 0 }
     const text = await res.text()
 
     const comments: RedditPost['comments'] = []
-    const entryRegex = /<entry>([\s\S]*?)<\/entry>/g
-    let m: RegExpExecArray | null
+    // 첫 entry는 포스트 본문 → 두 번째부터 댓글
+    const entryMatches = [...text.matchAll(/<entry>([\s\S]*?)<\/entry>/g)]
+    let totalEntries = 0
 
-    while ((m = entryRegex.exec(text)) !== null) {
-      const entry = m[1]
-      const content = decodeEntities(entry.match(/<content[^>]*>([\s\S]*?)<\/content>/)?.[1] || '')
-      // content는 HTML → 텍스트만 추출
-      const body = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400)
+    for (const m of entryMatches) {
+      totalEntries++
+      if (totalEntries === 1) continue  // 첫 entry = 포스트 본문 스킵
+
+      const content = decodeEntities(m[1].match(/<content[^>]*>([\s\S]*?)<\/content>/)?.[1] || '')
+      const body = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500)
       if (body.length > 20 && body !== '[deleted]' && body !== '[removed]') {
         comments.push({
           id: `c_${Math.random().toString(36).slice(2, 8)}`,
@@ -131,11 +114,13 @@ async function fetchCommentsRSS(post: RedditPost): Promise<RedditPost['comments'
           depth: 0,
         })
       }
-      if (comments.length >= 6) break
+      if (comments.length >= 8) break
     }
-    return comments
+
+    // totalEntries - 1 = 실제 댓글 수 (첫 entry는 포스트 본문)
+    return { comments, count: Math.max(0, totalEntries - 1) }
   } catch {
-    return []
+    return { comments: [], count: 0 }
   }
 }
 
@@ -161,53 +146,79 @@ export async function crawlReddit(options: {
 
   const allPosts: RedditPost[] = []
   const seenIds = new Set<string>()
+  const nowSec = Date.now() / 1000
+  const cutoff = nowSec - ONE_WEEK_SEC
 
-  for (const sub of subreddits) {
-    try {
-      console.log(`  [Reddit] r/${sub} 수집 중...`)
-      const [rssPosts, ppPosts] = await Promise.allSettled([
-        fetchRSS(sub),
-        fetchPullpush(sub),
-      ])
+  // ── 1. 서브레딧별 hot + new RSS 전체 병렬 수집 ─────────────
+  const rssResults = await Promise.allSettled(
+    subreddits.flatMap(sub => [
+      fetchRSS(sub, 'hot').then(posts => ({ sub, sort: 'hot' as const, posts })),
+      fetchRSS(sub, 'new').then(posts => ({ sub, sort: 'new' as const, posts })),
+    ])
+  )
 
-      const fromRSS = rssPosts.status === 'fulfilled' ? rssPosts.value : []
-      const fromPP = ppPosts.status === 'fulfilled' ? ppPosts.value : []
+  const countBySub: Record<string, number> = {}
 
-      if (rssPosts.status === 'rejected') console.warn(`  [Reddit] r/${sub} RSS 실패:`, rssPosts.reason?.message)
-      if (ppPosts.status === 'rejected') console.warn(`  [Reddit] r/${sub} Pullpush 실패:`, ppPosts.reason?.message)
-
-      // 두 소스 병합 + 한국 관련 포스트만 필터
-      for (const p of [...fromPP, ...fromRSS]) {
-        if (!seenIds.has(p.id) && p.title && isKoreanRedditPost(p)) {
-          seenIds.add(p.id)
-          allPosts.push(p)
-        }
-      }
-
-      console.log(`  [Reddit] r/${sub}: RSS ${fromRSS.length}개 + Pullpush ${fromPP.length}개`)
-      await new Promise(r => setTimeout(r, 1000))
-
-    } catch (e) {
-      console.error(`  [Reddit] r/${sub} 전체 실패:`, (e as Error).message)
+  for (const r of rssResults) {
+    if (r.status === 'rejected') {
+      console.warn(`  [Reddit] RSS 실패:`, r.reason?.message)
+      continue
     }
+    const { sub, sort, posts } = r.value
+    let added = 0
+    for (const p of posts) {
+      const postSec = new Date(p.createdAt).getTime() / 1000
+      if (postSec < cutoff) continue
+      if (!p.title || seenIds.has(p.id)) continue
+      if (!isKoreanRedditPost(p)) continue
+      seenIds.add(p.id)
+      allPosts.push(p)
+      added++
+    }
+    countBySub[sub] = (countBySub[sub] || 0) + added
+    console.log(`  [Reddit] r/${sub} [${sort}]: ${posts.length}개 → 1주이내+K ${added}개`)
   }
 
-  // 인기 포스트 댓글 수집
+  for (const [sub, cnt] of Object.entries(countBySub)) {
+    console.log(`  [Reddit] r/${sub} 합계: ${cnt}개`)
+  }
+
+  // ── 2. 댓글 수집: 상위 12개 포스트 병렬 처리 ──────────────
+  // 1차 정렬: 최신성(score=recencyScore) 기준으로 상위 12개 선택
   if (fetchComments && allPosts.length > 0) {
-    const hot = allPosts
-      .filter(p => p.commentCount >= 5)
+    const candidates = [...allPosts]
       .sort((a, b) => b.score - a.score)
-      .slice(0, 6)
+      .slice(0, 12)
 
-    for (const post of hot) {
-      const comments = await fetchCommentsRSS(post)
-      if (comments.length > 0) {
-        post.comments = comments
+    console.log(`  [Reddit] 댓글 수집: 상위 ${candidates.length}개 병렬 처리 중...`)
+
+    const commentResults = await Promise.allSettled(
+      candidates.map(p => fetchCommentsRSS(p))
+    )
+
+    commentResults.forEach((r, i) => {
+      if (r.status === 'fulfilled') {
+        const { comments, count } = r.value
+        candidates[i].comments = comments
+        // 실제 댓글 수로 업데이트 → score 재산정
+        candidates[i].commentCount = count
+        // score = 댓글수 * 15 + 최신성보너스
+        const ageSec = nowSec - new Date(candidates[i].createdAt).getTime() / 1000
+        const recency = ageSec < 86400 ? 100 : ageSec < 259200 ? 50 : 10
+        candidates[i].score = count * 15 + recency
       }
-      await new Promise(r => setTimeout(r, 500))
+    })
+
+    // 댓글 없는 나머지 포스트들도 score 재산정 (댓글 미수집)
+    for (const p of allPosts) {
+      if (!candidates.includes(p)) {
+        const ageSec = nowSec - new Date(p.createdAt).getTime() / 1000
+        const recency = ageSec < 86400 ? 100 : ageSec < 259200 ? 50 : 10
+        p.score = recency  // 댓글 수 없으므로 최신성만
+      }
     }
   }
 
-  console.log(`  [Reddit] 총 ${allPosts.length}개 포스트 수집 완료`)
+  console.log(`  [Reddit] 총 ${allPosts.length}개 포스트 수집 완료 (1주 이내, 한국 관련)`)
   return allPosts
 }
