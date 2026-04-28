@@ -110,41 +110,39 @@ export const demoRedditPosts: RedditPost[] = [
 ]
 
 export const demoFlixPatrol: FlixPatrolEntry[] = [
-  // Netflix Global
+  // Netflix Global - 한국 콘텐츠만
   { rank: 1, title: 'Squid Game', platform: 'netflix', region: 'Global', points: 4823, isKContent: true },
-  { rank: 2, title: 'Adolescence', platform: 'netflix', region: 'Global', points: 3921, isKContent: false },
-  { rank: 3, title: 'When the Stars Gossip', platform: 'netflix', region: 'Global', points: 2876, isKContent: true },
-  { rank: 4, title: 'Bridgerton', platform: 'netflix', region: 'Global', points: 2341, isKContent: false },
-  { rank: 5, title: 'Pachinko', platform: 'netflix', region: 'Global', points: 1987, isKContent: true },
-  { rank: 6, title: 'Sweet Home', platform: 'netflix', region: 'Global', points: 1654, isKContent: true },
-  { rank: 7, title: 'Stranger Things', platform: 'netflix', region: 'Global', points: 1432, isKContent: false },
-  { rank: 8, title: 'Lovely Runner', platform: 'netflix', region: 'Global', points: 1287, isKContent: true },
-  { rank: 9, title: 'The Diplomat', platform: 'netflix', region: 'Global', points: 1102, isKContent: false },
-  { rank: 10, title: 'My Mister', platform: 'netflix', region: 'Global', points: 987, isKContent: true },
+  { rank: 2, title: 'When the Stars Gossip', platform: 'netflix', region: 'Global', points: 2876, isKContent: true },
+  { rank: 3, title: 'Pachinko', platform: 'netflix', region: 'Global', points: 1987, isKContent: true },
+  { rank: 4, title: 'Sweet Home', platform: 'netflix', region: 'Global', points: 1654, isKContent: true },
+  { rank: 5, title: 'Lovely Runner', platform: 'netflix', region: 'Global', points: 1287, isKContent: true },
+  { rank: 6, title: 'My Mister', platform: 'netflix', region: 'Global', points: 987, isKContent: true },
+  { rank: 7, title: 'Crash Landing on You', platform: 'netflix', region: 'Global', points: 876, isKContent: true },
+  { rank: 8, title: 'Juvenile Justice', platform: 'netflix', region: 'Global', points: 754, isKContent: true },
 
-  // Netflix US
+  // Netflix US - 한국 콘텐츠만
   { rank: 1, title: 'Squid Game', platform: 'netflix', region: 'US', points: 5210, isKContent: true },
-  { rank: 2, title: 'Adolescence', platform: 'netflix', region: 'US', points: 4102, isKContent: false },
-  { rank: 3, title: 'When the Stars Gossip', platform: 'netflix', region: 'US', points: 2654, isKContent: true },
-  { rank: 4, title: 'Bridgerton', platform: 'netflix', region: 'US', points: 2341, isKContent: false },
-  { rank: 5, title: 'Pachinko', platform: 'netflix', region: 'US', points: 1876, isKContent: true },
-  { rank: 6, title: 'Stranger Things', platform: 'netflix', region: 'US', points: 1765, isKContent: false },
-  { rank: 7, title: 'Sweet Home', platform: 'netflix', region: 'US', points: 1432, isKContent: true },
-  { rank: 8, title: 'The Diplomat', platform: 'netflix', region: 'US', points: 1321, isKContent: false },
-  { rank: 9, title: 'Lovely Runner', platform: 'netflix', region: 'US', points: 1102, isKContent: true },
-  { rank: 10, title: 'Emily in Paris', platform: 'netflix', region: 'US', points: 987, isKContent: false },
+  { rank: 2, title: 'When the Stars Gossip', platform: 'netflix', region: 'US', points: 2654, isKContent: true },
+  { rank: 3, title: 'Pachinko', platform: 'netflix', region: 'US', points: 1876, isKContent: true },
+  { rank: 4, title: 'Sweet Home', platform: 'netflix', region: 'US', points: 1432, isKContent: true },
+  { rank: 5, title: 'Lovely Runner', platform: 'netflix', region: 'US', points: 1102, isKContent: true },
 
-  // Disney+ Global
-  { rank: 1, title: 'Andor', platform: 'disney', region: 'Global', points: 2341, isKContent: false },
-  { rank: 2, title: 'Moving', platform: 'disney', region: 'Global', points: 1876, isKContent: true },
-  { rank: 3, title: 'The Bear', platform: 'disney', region: 'Global', points: 1654, isKContent: false },
-  { rank: 4, title: 'Bloodhounds', platform: 'disney', region: 'Global', points: 1432, isKContent: true },
-  { rank: 5, title: 'Shogun', platform: 'disney', region: 'Global', points: 1287, isKContent: false },
+  // Netflix Korea
+  { rank: 1, title: 'When the Stars Gossip', platform: 'netflix', region: 'Korea', points: 3210, isKContent: true },
+  { rank: 2, title: 'Squid Game', platform: 'netflix', region: 'Korea', points: 2987, isKContent: true },
+  { rank: 3, title: 'My Mister', platform: 'netflix', region: 'Korea', points: 1876, isKContent: true },
+  { rank: 4, title: 'Signal', platform: 'netflix', region: 'Korea', points: 1543, isKContent: true },
+  { rank: 5, title: 'Reply 1988', platform: 'netflix', region: 'Korea', points: 1234, isKContent: true },
 
-  // Apple TV+
+  // Disney+ Global - 한국 콘텐츠만
+  { rank: 1, title: 'Moving', platform: 'disney', region: 'Global', points: 1876, isKContent: true },
+  { rank: 2, title: 'Bloodhounds', platform: 'disney', region: 'Global', points: 1432, isKContent: true },
+  { rank: 3, title: 'Connect', platform: 'disney', region: 'Global', points: 987, isKContent: true },
+  { rank: 4, title: 'Kiss Sixth Sense', platform: 'disney', region: 'Global', points: 765, isKContent: true },
+
+  // Apple TV+ - 한국 콘텐츠만
   { rank: 1, title: 'Pachinko', platform: 'apple', region: 'Global', points: 2102, isKContent: true },
-  { rank: 2, title: 'Severance', platform: 'apple', region: 'Global', points: 1987, isKContent: false },
-  { rank: 3, title: 'The Morning Show', platform: 'apple', region: 'Global', points: 1654, isKContent: false },
+  { rank: 2, title: 'Pachinko', platform: 'apple', region: 'US', points: 1876, isKContent: true },
 ]
 
 export const demoMyDramaList: MyDramaListEntry[] = [

@@ -6,49 +6,54 @@
 // ============================================================
 
 import type { FlixPatrolEntry } from '../types/index.js'
+import { isKorean } from '../pipeline/korean-filter.js'
 
 const SOOMPI_FEEDS = [
-  { url: 'https://www.soompi.com/feed',                          label: 'Soompi 전체' },
-  { url: 'https://www.soompi.com/category/dramas/feed',          label: 'Soompi 드라마' },
-  { url: 'https://www.soompi.com/category/tv-film/feed',         label: 'Soompi TV/영화' },
+  { url: 'https://www.soompi.com/feed', label: 'Soompi 전체' },
 ]
 
 const KOREABOO_FEED = 'https://www.koreaboo.com/feed/'
 
 // 플랫폼 감지 키워드
 const PLATFORM_MAP: { key: string; name: string }[] = [
-  { key: 'netflix',   name: 'netflix' },
-  { key: 'disney+',  name: 'disney' },
+  { key: 'netflix',      name: 'netflix' },
+  { key: 'disney+',     name: 'disney' },
   { key: 'disney plus', name: 'disney' },
-  { key: 'apple tv', name: 'apple' },
-  { key: 'apple tv+', name: 'apple' },
-  { key: 'hulu',     name: 'hulu' },
-  { key: 'amazon',   name: 'amazon' },
+  { key: 'apple tv',    name: 'apple' },
+  { key: 'apple tv+',   name: 'apple' },
+  { key: 'hulu',        name: 'hulu' },
+  { key: 'amazon',      name: 'amazon' },
   { key: 'prime video', name: 'amazon' },
-  { key: 'wavve',    name: 'wavve' },
-  { key: 'tving',    name: 'tving' },
-  { key: 'coupang',  name: 'coupang' },
+  { key: 'wavve',       name: 'wavve' },
+  { key: 'tving',       name: 'tving' },
+  { key: 'coupang',     name: 'coupang' },
 ]
 
 // 지역 감지 키워드
 const REGION_MAP: { key: string; name: string }[] = [
-  { key: 'korea',   name: 'Korea' },
-  { key: 'korean',  name: 'Korea' },
-  { key: 'japan',   name: 'Japan' },
-  { key: 'us',      name: 'US' },
-  { key: 'global',  name: 'Global' },
-  { key: 'asia',    name: 'Asia' },
+  { key: 'korea',  name: 'Korea' },
+  { key: 'korean', name: 'Korea' },
+  { key: 'japan',  name: 'Japan' },
+  { key: 'us',     name: 'US' },
+  { key: 'global', name: 'Global' },
+  { key: 'asia',   name: 'Asia' },
 ]
 
-// 드라마 제목 추출 정규식 패턴
+// 따옴표 안 드라마/영화 제목 추출 패턴
 const DRAMA_TITLE_PATTERNS = [
-  /"([^"]{3,60})"/g,                          // "드라마명"
-  /\u201c([^\u201d]{3,60})\u201d/g,          // "드라마명" (유니코드)
-  /\u2018([^\u2019]{3,60})\u2019/g,          // '드라마명' (유니코드)
-  /drama\s+"([^"]{3,60})"/gi,
-  /series\s+"([^"]{3,60})"/gi,
-  /show\s+"([^"]{3,60})"/gi,
-  /in\s+"([^"]{3,60})"/gi,
+  /\u201c([^\u201d]{2,60})\u201d/g,   // "드라마명" (유니코드 곡선 큰따옴표) ← Soompi 주로 사용
+  /\u2018([^\u2019]{2,60})\u2019/g,   // '드라마명' (유니코드 곡선 작은따옴표)
+  /"([^"]{2,60})"/g,                   // "드라마명" (일반 큰따옴표)
+]
+
+// 제목으로 쓰면 안 되는 패턴 (문장형 표현 제거)
+const SKIP_TITLE_PATTERNS = [
+  /\b(confirms?|reveals?|talks?|shares?|opens? up|addresses?|says?|explains?|returns?|joins?|cast|spotted|dating|teases?|hints?|announces?|discusses?|reacts?|responds?)\b/i,
+  /\b(is|are|was|were|will|would|could|should|has|have|had)\b/i,
+  /^(watch|review|preview|recap|interview|exclusive|video|photos?|behind|meet|first|new|upcoming|check|see|read)/i,
+  /^(the |a |an )?\d{4}$/i,
+  /\b(episode|season|ep\.)\s+\d+\b/i,
+  /[!?]{1}$/,    // 느낌표/물음표로 끝나는 문장
 ]
 
 function decodeHtmlEntities(str: string): string {
@@ -84,17 +89,32 @@ function detectRegion(text: string): string {
   return 'Global'
 }
 
-function extractDramaTitles(text: string): string[] {
+// ============================================================
+// 따옴표 안에서 드라마 제목만 추출 (헤드라인 전체 금지)
+// ============================================================
+function extractDramaTitles(articleTitle: string, content: string): string[] {
   const titles = new Set<string>()
+  const searchText = `${articleTitle} ${content}`
+
   for (const pattern of DRAMA_TITLE_PATTERNS) {
     pattern.lastIndex = 0
     let m: RegExpExecArray | null
-    while ((m = pattern.exec(text)) !== null) {
-      const t = m[1].trim()
-      // 너무 짧거나 일반 단어는 제외
-      if (t.length >= 3 && t.length <= 60 && !/^(the|a|an|and|or|in|on|at|to|for|of|with|this|that|it|is|was|are|were|be|been|by|from|as|has|had|have|will|would|could|should|may|might|must|shall|did|do|does|not|no|yes|so|but|if|then|when|where|who|what|how|why)$/i.test(t)) {
-        titles.add(t)
-      }
+    while ((m = pattern.exec(searchText)) !== null) {
+      const t = decodeHtmlEntities(m[1]).trim()
+
+      // 길이 체크
+      if (t.length < 2 || t.length > 60) continue
+
+      // 숫자만인 경우 제외
+      if (/^\d+$/.test(t)) continue
+
+      // 단어 수가 9개 초과 = 문장, 제외
+      if (t.split(/\s+/).length > 8) continue
+
+      // 문장형 패턴 제외
+      if (SKIP_TITLE_PATTERNS.some(p => p.test(t))) continue
+
+      titles.add(t)
     }
   }
   return [...titles]
@@ -102,6 +122,7 @@ function extractDramaTitles(text: string): string[] {
 
 interface RssItem {
   title: string
+  rawTitle: string
   link: string
   pubDate: string
   description: string
@@ -127,10 +148,11 @@ async function fetchRssFeed(url: string): Promise<RssItem[]> {
   while ((m = itemRegex.exec(text)) !== null) {
     const block = m[1]
 
-    const title = decodeHtmlEntities(
+    const rawTitle = (
       block.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/)?.[1] ||
       block.match(/<title>([\s\S]*?)<\/title>/)?.[1] || ''
     )
+    const title = decodeHtmlEntities(rawTitle)
     const link = (
       block.match(/<link>([\s\S]*?)<\/link>/)?.[1] ||
       block.match(/<guid[^>]*>(https?:\/\/[^<]+)<\/guid>/)?.[1] || ''
@@ -143,12 +165,11 @@ async function fetchRssFeed(url: string): Promise<RssItem[]> {
     const content = decodeHtmlEntities(
       block.match(/<content:encoded><!\[CDATA\[([\s\S]*?)\]\]><\/content:encoded>/)?.[1] || description
     )
-
     const catMatches = [...block.matchAll(/<category><!\[CDATA\[([\s\S]*?)\]\]><\/category>/g)]
     const categories = catMatches.map(c => c[1].trim())
 
     if (title) {
-      items.push({ title, link, pubDate, description, categories, content })
+      items.push({ title, rawTitle, link, pubDate, description, categories, content })
     }
   }
 
@@ -187,7 +208,14 @@ export async function crawlFlixPatrol(): Promise<FlixPatrolEntry[]> {
     console.warn(`  [Koreaboo] 실패:`, (e as Error).message)
   }
 
-  // ── 3. 기사에서 드라마 제목 추출 → FlixPatrolEntry 변환 ──
+  // ── 3. 한국 관련 기사만 필터링 ────────────────────────────
+  const koreanItems = allItems.filter(item => {
+    const combined = `${item.title} ${item.description} ${item.categories.join(' ')}`
+    return isKorean(combined, { includeUnknown: false })
+  })
+  console.log(`  [Soompi] 전체 ${allItems.length}개 중 한국 관련 ${koreanItems.length}개 필터링`)
+
+  // ── 4. 따옴표 안 드라마 제목만 추출 → FlixPatrolEntry 변환 ──
   const titleMentions = new Map<string, {
     count: number
     platform: string
@@ -195,27 +223,21 @@ export async function crawlFlixPatrol(): Promise<FlixPatrolEntry[]> {
     url: string
     pubDate: string
     isK: boolean
+    originalTitle: string
   }>()
 
-  for (const item of allItems) {
-    const fullText = `${item.title} ${item.description} ${item.content}`
+  for (const item of koreanItems) {
+    const fullText = `${item.rawTitle} ${item.content}`
     const platform = detectPlatform(fullText)
     const region   = detectRegion(fullText)
-    const isK      = item.categories.some(c =>
+    const isK = item.categories.some(c =>
       /drama|korean|k-pop|kdrama/i.test(c)
     ) || /korean|korea|k-drama|kdrama/i.test(fullText)
 
-    // 기사 제목에서 드라마 제목 추출
-    const dramaTitle = item.title
-      .replace(/^(watch|review|preview|recap|interview|exclusive|video|photos?):\s*/i, '')
-      .replace(/\s+(season \d+|episode \d+|ep\.\s*\d+).*$/i, '')
-      .replace(/\s+(confirms?|reveals?|talks?|shares?|opens? up|addresses?|says?|explains?).*$/i, '')
-      .trim()
+    // 따옴표 안 드라마 제목만 추출
+    const dramaTitles = extractDramaTitles(item.rawTitle, item.content)
 
-    const titlesFromContent = extractDramaTitles(fullText)
-    const candidates = [dramaTitle, ...titlesFromContent].filter(t => t.length >= 3)
-
-    for (const t of candidates) {
+    for (const t of dramaTitles) {
       const key = t.toLowerCase()
       if (titleMentions.has(key)) {
         titleMentions.get(key)!.count++
@@ -227,29 +249,26 @@ export async function crawlFlixPatrol(): Promise<FlixPatrolEntry[]> {
           url: item.link,
           pubDate: item.pubDate,
           isK,
+          originalTitle: t,
         })
       }
     }
   }
 
-  // ── 4. 언급 횟수 기준 정렬 → FlixPatrolEntry 배열 생성 ──
+  // ── 5. 언급 횟수 기준 정렬 → FlixPatrolEntry 배열 생성 ──
   const sorted = [...titleMentions.entries()]
-    .filter(([, v]) => v.count >= 1)
     .sort((a, b) => b[1].count - a[1].count)
     .slice(0, 50)
 
-  for (const [title, info] of sorted) {
-    // 제목 정규화: 첫 글자 대문자
-    const displayTitle = title.charAt(0).toUpperCase() + title.slice(1)
-
-    if (!seenTitles.has(title)) {
-      seenTitles.add(title)
+  for (const [_key, info] of sorted) {
+    if (!seenTitles.has(info.originalTitle.toLowerCase())) {
+      seenTitles.add(info.originalTitle.toLowerCase())
       allEntries.push({
         rank: rank++,
-        title: displayTitle,
+        title: info.originalTitle,
         platform: info.platform,
         region: info.region,
-        points: info.count * 10,   // 언급 횟수 × 10 = points
+        points: info.count * 10,
         isKContent: info.isK,
         url: info.url,
       })
@@ -257,5 +276,8 @@ export async function crawlFlixPatrol(): Promise<FlixPatrolEntry[]> {
   }
 
   console.log(`  [Soompi/Koreaboo] 총 ${allEntries.length}개 항목 수집 (K: ${allEntries.filter(e => e.isKContent).length}개)`)
+  if (allEntries.length > 0) {
+    console.log(`  [Soompi/Koreaboo] 상위 5개: ${allEntries.slice(0, 5).map(e => e.title).join(', ')}`)
+  }
   return allEntries
 }

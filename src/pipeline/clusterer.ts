@@ -1,4 +1,6 @@
 import type { NormalizedItem, ContentCluster, ContentType } from '../types/index.js'
+import { detectKorean, K_SUBREDDITS } from './korean-filter.js'
+import { cleanDisplayTitle } from './normalizer.js'
 
 function jaccardSimilarity(a: string[], b: string[]): number {
   if (!a.length && !b.length) return 1
@@ -35,7 +37,8 @@ function isSame(a: NormalizedItem, b: NormalizedItem): boolean {
 
 function pickTitle(items: NormalizedItem[]): string {
   const priority: Record<string, number> = { flixpatrol: 3, mydramalist: 2, letterboxd: 2, reddit: 0 }
-  return [...items].sort((a, b) => (priority[b.source] ?? 0) - (priority[a.source] ?? 0))[0]?.rawTitle ?? 'Unknown'
+  const raw = [...items].sort((a, b) => (priority[b.source] ?? 0) - (priority[a.source] ?? 0))[0]?.rawTitle ?? 'Unknown'
+  return cleanDisplayTitle(raw)
 }
 
 function inferType(items: NormalizedItem[]): ContentType {
@@ -47,11 +50,19 @@ function inferType(items: NormalizedItem[]): ContentType {
 }
 
 function isKContent(items: NormalizedItem[]): boolean {
-  return items.some(i =>
-    i.source === 'mydramalist' ||
-    (i.metadata?.isKContent as boolean) === true ||
-    (i.metadata?.subreddit as string | undefined)?.includes('kdrama')
-  )
+  return items.some(i => {
+    // 1. 명시적 K 콘텐츠 플래그
+    if ((i.metadata?.isKContent as boolean) === true) return true
+    // 2. MDL/Soompi 소스: 이미 한국 기사에서만 추출 → 항상 K 콘텐츠
+    if (i.source === 'mydramalist') return true
+    if (i.source === 'flixpatrol') return true  // Soompi RSS (한국 기사 전용)
+    // 3. 한국 전용 서브레딧
+    const sub = i.metadata?.subreddit as string | undefined
+    if (sub && K_SUBREDDITS.has(sub)) return true
+    // 4. 제목 + 메타데이터로 한국 판별
+    const combined = `${i.rawTitle} ${JSON.stringify(i.metadata)}`
+    return detectKorean(combined) === 'yes'
+  })
 }
 
 let counter = 0

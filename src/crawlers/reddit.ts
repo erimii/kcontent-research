@@ -4,6 +4,7 @@
 // ============================================================
 
 import type { RedditPost } from '../types/index.js'
+import { isKoreanRedditPost } from '../pipeline/korean-filter.js'
 
 const DEFAULT_SUBREDDITS = ['kdramas', 'kdrama', 'kdramarecommends', 'korean', 'koreatravel']
 
@@ -175,9 +176,9 @@ export async function crawlReddit(options: {
       if (rssPosts.status === 'rejected') console.warn(`  [Reddit] r/${sub} RSS 실패:`, rssPosts.reason?.message)
       if (ppPosts.status === 'rejected') console.warn(`  [Reddit] r/${sub} Pullpush 실패:`, ppPosts.reason?.message)
 
-      // 두 소스 병합 (Pullpush 우선 - 점수 정보 더 풍부)
+      // 두 소스 병합 + 한국 관련 포스트만 필터
       for (const p of [...fromPP, ...fromRSS]) {
-        if (!seenIds.has(p.id) && p.title) {
+        if (!seenIds.has(p.id) && p.title && isKoreanRedditPost(p)) {
           seenIds.add(p.id)
           allPosts.push(p)
         }
