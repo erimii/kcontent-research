@@ -2,28 +2,52 @@
 // K-Content Intelligence Dashboard - Frontend App
 // ============================================================
 
+// 안전한 JSON 파싱 - HTML이 응답되거나 서버 재시작 중일 때 에러 방지
+async function safeJsonFetch(input, init) {
+  let res
+  try {
+    res = await fetch(input, init)
+  } catch (e) {
+    // 네트워크 오류 (서버 다운 등)
+    throw new Error(`연결 오류: 서버에 접근할 수 없습니다. (${e.message})`)
+  }
+  const text = await res.text()
+  // 서버가 HTML을 반환한 경우 (재시작 중, 라우트 미스 등)
+  if (text.trimStart().startsWith('<')) {
+    if (!res.ok) {
+      throw new Error(`서버 오류 (${res.status}): 서버가 재시작 중이거나 일시적으로 응답할 수 없습니다.`)
+    }
+    throw new Error(`응답 오류: JSON 대신 HTML 페이지가 반환되었습니다. 잠시 후 다시 시도해주세요.`)
+  }
+  try {
+    return JSON.parse(text)
+  } catch (e) {
+    throw new Error(`JSON 파싱 실패: ${text.slice(0, 80)}...`)
+  }
+}
+
 const API = {
-  health:       () => fetch('/api/health').then(r => r.json()),
-  demo:  (type = 'daily') => fetch('/api/crawl/demo', {
+  health:       () => safeJsonFetch('/api/health'),
+  demo:  (type = 'daily') => safeJsonFetch('/api/crawl/demo', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ type })
-  }).then(r => r.json()),
-  crawl: (type = 'daily', sources = ['reddit','flixpatrol','mydramalist']) => fetch('/api/crawl', {
+  }),
+  crawl: (type = 'daily', sources = ['reddit','flixpatrol','mydramalist']) => safeJsonFetch('/api/crawl', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ type, sources })
-  }).then(r => r.json()),
-  scheduleTrigger: (type = 'daily', sources = ['reddit','flixpatrol','mydramalist']) => fetch('/api/schedule/trigger', {
+  }),
+  scheduleTrigger: (type = 'daily', sources = ['reddit','flixpatrol','mydramalist']) => safeJsonFetch('/api/schedule/trigger', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ type, sources })
-  }).then(r => r.json()),
-  reports:      (type = 'daily') => fetch(`/api/reports?type=${type}&limit=20`).then(r => r.json()),
-  latestReport: (type = 'daily') => fetch(`/api/reports/latest/${type}`).then(r => r.json()),
-  report:       (id) => fetch(`/api/reports/${id}`).then(r => r.json()),
-  deleteReport: (id) => fetch(`/api/reports/${id}`, { method: 'DELETE' }).then(r => r.json()),
-  logs:         () => fetch('/api/logs').then(r => r.json()),
-  search:       (q, kOnly = false) => fetch(`/api/search?q=${encodeURIComponent(q)}&konly=${kOnly}`).then(r => r.json()),
-  schedule:     () => fetch('/api/schedule').then(r => r.json()),
-  stats:        () => fetch('/api/stats').then(r => r.json()),
+  }),
+  reports:      (type = 'daily') => safeJsonFetch(`/api/reports?type=${type}&limit=20`),
+  latestReport: (type = 'daily') => safeJsonFetch(`/api/reports/latest/${type}`),
+  report:       (id) => safeJsonFetch(`/api/reports/${id}`),
+  deleteReport: (id) => safeJsonFetch(`/api/reports/${id}`, { method: 'DELETE' }),
+  logs:         () => safeJsonFetch('/api/logs'),
+  search:       (q, kOnly = false) => safeJsonFetch(`/api/search?q=${encodeURIComponent(q)}&konly=${kOnly}`),
+  schedule:     () => safeJsonFetch('/api/schedule'),
+  stats:        () => safeJsonFetch('/api/stats'),
   newsletterUrl:(id) => `/api/newsletter/${id}`,
 }
 

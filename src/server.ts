@@ -100,9 +100,15 @@ app.post('/api/crawl/demo', (req, res) => {
 })
 
 // ============================================================
-// 실제 크롤링 실행 (Playwright)
+// 실제 크롤링 실행
 // ============================================================
 app.post('/api/crawl', async (req, res) => {
+  // 응답이 이미 전송됐는지 체크하는 헬퍼
+  const safeSend = (status: number, body: object) => {
+    if (res.headersSent) return
+    res.status(status).json(body)
+  }
+
   const reportType = (req.body?.type as 'daily' | 'weekly') ?? 'daily'
   const sources: string[] = req.body?.sources ?? ['reddit', 'flixpatrol', 'mydramalist']
   const logs: string[] = []
@@ -111,11 +117,23 @@ app.post('/api/crawl', async (req, res) => {
   const log = (msg: string) => { console.log(msg); logs.push(msg) }
   log(`\n[크롤링] 시작 (${reportType}) - 소스: ${sources.join(', ')}`)
 
-  try {
-    let redditPosts: any[] = []
-    let flixPatrolEntries: any[] = []
-    let myDramaListEntries: any[] = []
+  // 전체 크롤링에 5분 타임아웃
+  const crawlTimeout = setTimeout(() => {
+    log('[타임아웃] 5분 초과 - 수집된 데이터로 파이프라인 실행')
+    try {
+      const report = runPipeline({ redditPosts, flixPatrolEntries, myDramaListEntries, reportType })
+      saveReport(report)
+      safeSend(200, { ok: true, reportId: report.id, logs, report, timedOut: true })
+    } catch (e) {
+      safeSend(500, { ok: false, error: `타임아웃 후 파이프라인 오류: ${e}`, logs })
+    }
+  }, 5 * 60 * 1000)
 
+  let redditPosts: any[] = []
+  let flixPatrolEntries: any[] = []
+  let myDramaListEntries: any[] = []
+
+  try {
     if (sources.includes('reddit')) {
       try {
         const { crawlReddit } = await import('./crawlers/reddit.js')
@@ -124,7 +142,7 @@ app.post('/api/crawl', async (req, res) => {
         log(`[Reddit] ${redditPosts.length}개 포스트 수집`)
       } catch (e) {
         saveCrawlLog('reddit', 0, 'failed', String(e))
-        log(`[Reddit] 실패: ${e}`)
+        log(`[Reddit] 실패: ${(e as Error).message}`)
       }
     }
 
@@ -133,10 +151,10 @@ app.post('/api/crawl', async (req, res) => {
         const { crawlFlixPatrol } = await import('./crawlers/flixpatrol.js')
         flixPatrolEntries = await crawlFlixPatrol()
         saveCrawlLog('flixpatrol', flixPatrolEntries.length, 'success')
-        log(`[FlixPatrol] ${flixPatrolEntries.length}개 항목 수집`)
+        log(`[Soompi/Koreaboo] ${flixPatrolEntries.length}개 항목 수집`)
       } catch (e) {
         saveCrawlLog('flixpatrol', 0, 'failed', String(e))
-        log(`[FlixPatrol] 실패: ${e}`)
+        log(`[Soompi/Koreaboo] 실패: ${(e as Error).message}`)
       }
     }
 
@@ -148,7 +166,7 @@ app.post('/api/crawl', async (req, res) => {
         log(`[MyDramaList] ${myDramaListEntries.length}개 드라마 수집`)
       } catch (e) {
         saveCrawlLog('mydramalist', 0, 'failed', String(e))
-        log(`[MyDramaList] 실패: ${e}`)
+        log(`[MyDramaList] 실패: ${(e as Error).message}`)
       }
     }
 
@@ -158,9 +176,12 @@ app.post('/api/crawl', async (req, res) => {
 
     const elapsed = ((Date.now() - start) / 1000).toFixed(1)
     log(`[완료] ${elapsed}초 소요 - 클러스터: ${report.topContents.length}개, 인사이트: ${report.insights.length}개`)
-    res.json({ ok: true, reportId: report.id, logs, report })
+    clearTimeout(crawlTimeout)
+    safeSend(200, { ok: true, reportId: report.id, logs, report })
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e), logs })
+    clearTimeout(crawlTimeout)
+    log(`[오류] ${(e as Error).message}`)
+    safeSend(500, { ok: false, error: String(e), logs })
   }
 })
 
@@ -404,6 +425,11 @@ app.get('/api/schedule', (_req, res) => {
 // 스케줄 수동 트리거
 // ============================================================
 app.post('/api/schedule/trigger', async (req, res) => {
+  const safeSend = (status: number, body: object) => {
+    if (res.headersSent) return
+    res.status(status).json(body)
+  }
+
   const reportType = (req.body?.type as 'daily' | 'weekly') ?? 'daily'
   const sources: string[] = req.body?.sources ?? ['reddit', 'flixpatrol', 'mydramalist']
   const logs: string[] = []
@@ -412,11 +438,11 @@ app.post('/api/schedule/trigger', async (req, res) => {
   const log = (msg: string) => { console.log('[Schedule]', msg); logs.push(msg) }
   log(`스케줄 수동 트리거: ${reportType} / 소스: ${sources.join(', ')}`)
 
-  try {
-    let redditPosts: any[] = []
-    let flixPatrolEntries: any[] = []
-    let myDramaListEntries: any[] = []
+  let redditPosts: any[] = []
+  let flixPatrolEntries: any[] = []
+  let myDramaListEntries: any[] = []
 
+  try {
     if (sources.includes('reddit')) {
       try {
         const { crawlReddit } = await import('./crawlers/reddit.js')
@@ -425,7 +451,7 @@ app.post('/api/schedule/trigger', async (req, res) => {
         log(`Reddit: ${redditPosts.length}개 포스트`)
       } catch (e) {
         saveCrawlLog('reddit', 0, 'failed', String(e))
-        log(`Reddit 실패: ${e}`)
+        log(`Reddit 실패: ${(e as Error).message}`)
       }
     }
     if (sources.includes('flixpatrol')) {
@@ -433,10 +459,10 @@ app.post('/api/schedule/trigger', async (req, res) => {
         const { crawlFlixPatrol } = await import('./crawlers/flixpatrol.js')
         flixPatrolEntries = await crawlFlixPatrol()
         saveCrawlLog('flixpatrol', flixPatrolEntries.length, 'success')
-        log(`FlixPatrol: ${flixPatrolEntries.length}개`)
+        log(`Soompi/Koreaboo: ${flixPatrolEntries.length}개`)
       } catch (e) {
         saveCrawlLog('flixpatrol', 0, 'failed', String(e))
-        log(`FlixPatrol 실패: ${e}`)
+        log(`Soompi/Koreaboo 실패: ${(e as Error).message}`)
       }
     }
     if (sources.includes('mydramalist')) {
@@ -447,7 +473,7 @@ app.post('/api/schedule/trigger', async (req, res) => {
         log(`MyDramaList: ${myDramaListEntries.length}개`)
       } catch (e) {
         saveCrawlLog('mydramalist', 0, 'failed', String(e))
-        log(`MyDramaList 실패: ${e}`)
+        log(`MyDramaList 실패: ${(e as Error).message}`)
       }
     }
 
@@ -456,9 +482,10 @@ app.post('/api/schedule/trigger', async (req, res) => {
     const elapsed = ((Date.now() - start) / 1000).toFixed(1)
     log(`완료 (${elapsed}s) - 클러스터: ${report.topContents.length}개, 인사이트: ${report.insights.length}개`)
 
-    res.json({ ok: true, reportId: report.id, elapsed: Number(elapsed), logs })
+    safeSend(200, { ok: true, reportId: report.id, elapsed: Number(elapsed), logs })
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e), logs })
+    log(`오류: ${(e as Error).message}`)
+    safeSend(500, { ok: false, error: String(e), logs })
   }
 })
 
