@@ -1,4 +1,8 @@
-import type { ContentCluster, InsightSentence, RedditPost, RedditCategorySummary } from '../types/index.js'
+import type {
+  ContentCluster, InsightSentence, RedditPost, RedditCategorySummary,
+  ContentTrend, SentimentTrend, BehaviorTrend, SubredditInsight,
+  DeepAnalysis, KoreanInsight, BehaviorType,
+} from '../types/index.js'
 
 export function generateInsights(ranked: ContentCluster[]): InsightSentence[] {
   const insights: InsightSentence[] = []
@@ -146,4 +150,113 @@ export function categorizeRedditPosts(posts: RedditPost[]): RedditCategorySummar
     culturalQuestions: [...cultural.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([topic, count]) => ({ topic, count })),
     hotPosts: [...posts].sort((a, b) => b.score - a.score).slice(0, 5),
   }
+}
+
+// ============================================================
+// Stage 6: 한국어 해석 인사이트
+// ============================================================
+
+const BEHAVIOR_LABEL: Record<BehaviorType, string> = {
+  recommendation: '추천 요청',
+  review: '리뷰/후기',
+  question: '질문',
+  discussion: '의견/토론',
+}
+
+function pct(x: number): string {
+  return `${Math.round(x * 100)}%`
+}
+
+export function generateKoreanInsights(args: {
+  content: ContentTrend
+  sentiment: SentimentTrend
+  behavior: BehaviorTrend
+  subredditInsights: SubredditInsight[]
+  deepAnalysis: DeepAnalysis[]
+}): KoreanInsight[] {
+  const { content, sentiment, behavior, subredditInsights, deepAnalysis } = args
+  const out: KoreanInsight[] = []
+
+  // 1. 트렌드 요약 — 무슨 일이 일어나고 있는지
+  if (content.topContents.length > 0) {
+    const top3 = content.topContents.slice(0, 3).map((c) => `"${c.title}"`).join(', ')
+    out.push({
+      category: 'trend_summary',
+      text: `현재 ${top3}이(가) 가장 많이 언급되며 글로벌 팬덤의 중심 화제로 자리잡고 있습니다.`,
+      evidence: content.topContents.slice(0, 5).map((c) => `${c.title}: ${c.count}회`),
+    })
+  } else if (content.topKeywords.length > 0) {
+    const kws = content.topKeywords.slice(0, 5).map((k) => k.keyword).join(', ')
+    out.push({
+      category: 'trend_summary',
+      text: `현재 화두는 ${kws} — 특정 작품보다 일반 키워드 중심의 대화가 활발합니다.`,
+      evidence: content.topKeywords.slice(0, 5).map((k) => `${k.keyword}: ${k.count}회`),
+    })
+  }
+
+  // 2. 팬 반응 특징 — 감정/행동 패턴
+  const sentLine = `긍정 ${pct(sentiment.positiveRatio)} · 부정 ${pct(sentiment.negativeRatio)} · 중립 ${pct(sentiment.neutralRatio)}`
+  const behTopEntry = (Object.entries(behavior.ratios) as [BehaviorType, number][])
+    .sort((a, b) => b[1] - a[1])[0]
+  const behTop = behTopEntry ? `${BEHAVIOR_LABEL[behTopEntry[0]]} ${pct(behTopEntry[1])}` : ''
+  out.push({
+    category: 'fan_reaction',
+    text: `감정 분포는 ${sentLine}이며, 게시글 행동은 ${behTop} 비중이 가장 높아 팬들이 능동적으로 ${BEHAVIOR_LABEL[behTopEntry?.[0] ?? 'discussion']}을(를) 주도하는 양상입니다.`,
+    evidence: [
+      `긍정 ${sentiment.positive}건 / 부정 ${sentiment.negative}건 / 중립 ${sentiment.neutral}건`,
+      `행동 분포: ${(Object.entries(behavior.ratios) as [BehaviorType, number][]).map(([k, v]) => `${BEHAVIOR_LABEL[k]} ${pct(v)}`).join(', ')}`,
+    ],
+  })
+
+  // 3. 콘텐츠 소비 패턴 — TOP 포스트 딥분석 결과
+  if (deepAnalysis.length > 0) {
+    const avgPos = deepAnalysis.reduce((s, d) => s + d.sentiment.positiveRatio, 0) / deepAnalysis.length
+    const totalComments = deepAnalysis.reduce((s, d) => s + d.commentCount, 0)
+    const avgComments = Math.round(totalComments / deepAnalysis.length)
+    out.push({
+      category: 'consumption_pattern',
+      text: `상위 ${deepAnalysis.length}개 인기 포스트의 평균 댓글 ${avgComments}개, 댓글 긍정률 ${pct(avgPos)} — 팬들이 단순 소비를 넘어 ${avgPos >= 0.5 ? '적극적 호응으로' : '비판적 토론으로'} 참여하고 있습니다.`,
+      evidence: deepAnalysis.slice(0, 3).map((d) => `${d.title.slice(0, 40)}: 댓글 ${d.commentCount}개, 긍정률 ${pct(d.sentiment.positiveRatio)}`),
+    })
+  }
+
+  // 4. 확장 흐름 — 서브레딧 분포에서 추론
+  const totalPosts = subredditInsights.reduce((s, x) => s + x.postCount, 0) || 1
+  const koreanSub = subredditInsights.find((s) => s.subreddit === 'korean')
+  const travelSub = subredditInsights.find((s) => s.subreddit === 'koreatravel')
+  const dramaSubs = subredditInsights.filter((s) =>
+    s.subreddit === 'kdramas' || s.subreddit === 'kdrama' || s.subreddit === 'kdramarecommends'
+  )
+  const dramaPosts = dramaSubs.reduce((s, x) => s + x.postCount, 0)
+  const cultPosts = (koreanSub?.postCount ?? 0) + (travelSub?.postCount ?? 0)
+  const dramaRatio = dramaPosts / totalPosts
+  const cultRatio = cultPosts / totalPosts
+
+  if (cultRatio >= 0.15 && dramaRatio >= 0.4) {
+    out.push({
+      category: 'expansion',
+      text: `드라마 관련 포스트 ${pct(dramaRatio)} 외 한국어/여행 관련 ${pct(cultRatio)} — 콘텐츠 소비가 한국 문화·언어·여행으로 자연스럽게 확장되는 흐름이 관측됩니다.`,
+      evidence: subredditInsights.map((s) => `r/${s.subreddit}: ${s.postCount}건 (${s.characteristic})`),
+    })
+  } else if (dramaRatio >= 0.6) {
+    out.push({
+      category: 'expansion',
+      text: `드라마 카테고리에 ${pct(dramaRatio)}가 집중 — 문화 확장보다는 콘텐츠 자체 소비에 머물러 있어, 추가 확산 트리거가 필요합니다.`,
+      evidence: subredditInsights.map((s) => `r/${s.subreddit}: ${s.postCount}건`),
+    })
+  }
+
+  // 5. 서브레딧별 특성 (옵션)
+  if (subredditInsights.length >= 2) {
+    const lines = subredditInsights.slice(0, 4).map((s) =>
+      `r/${s.subreddit} (${s.characteristic}, ${s.postCount}건, 주 행동: ${BEHAVIOR_LABEL[s.topBehavior]})`
+    )
+    out.push({
+      category: 'subreddit',
+      text: `커뮤니티별 성격이 명확합니다 — ${subredditInsights.slice(0, 3).map((s) => `r/${s.subreddit}는 ${BEHAVIOR_LABEL[s.topBehavior]} 중심`).join(', ')}.`,
+      evidence: lines,
+    })
+  }
+
+  return out.slice(0, 5)
 }

@@ -135,6 +135,343 @@ function escHtml(str) {
 }
 
 // ============================================================
+// 6단계 파이프라인 결과 카드 — 한국어 인사이트 / 트렌드 / 서브레딧
+// ============================================================
+
+const KR_INSIGHT_META = {
+  trend_summary:       { icon: '📈', label: '트렌드 요약',     color: '#3b82f6' },
+  fan_reaction:        { icon: '💬', label: '팬 반응 특징',    color: '#f59e0b' },
+  consumption_pattern: { icon: '🎬', label: '콘텐츠 소비 패턴', color: '#8b5cf6' },
+  expansion:           { icon: '🌏', label: '확장 흐름',        color: '#10b981' },
+  subreddit:           { icon: '👥', label: '커뮤니티 특성',    color: '#ec4899' },
+}
+
+const BEHAVIOR_LABEL_KO = {
+  recommendation: '추천 요청',
+  review:         '리뷰/후기',
+  question:       '질문',
+  discussion:     '의견/토론',
+}
+
+function pctText(x) {
+  return `${Math.round((x || 0) * 100)}%`
+}
+
+function renderKoreanInsights(r) {
+  const list = r.koreanInsights || []
+  if (list.length === 0) return ''
+  const fs = r.filterStats
+  const filterChip = fs
+    ? `<span style="font-size:11px;color:var(--text-muted)">필터링 ${fs.before}→${fs.after} (광고 ${fs.removed.promotional}·짧음 ${fs.removed.tooShort}·중복 ${fs.removed.duplicate})</span>`
+    : ''
+  return `
+    <div class="card" style="border-left:3px solid #ec4899">
+      <div class="card-header">
+        <div class="card-title"><i class="fas fa-brain" style="color:#ec4899"></i> 한국어 핵심 인사이트</div>
+        ${filterChip}
+      </div>
+      <div class="card-body" style="display:flex;flex-direction:column;gap:10px">
+        ${list.map(ins => {
+          const meta = KR_INSIGHT_META[ins.category] || { icon: '✨', label: '인사이트', color: '#888' }
+          return `
+            <div style="display:flex;gap:12px;padding:12px 14px;background:rgba(255,255,255,0.02);border-radius:8px;border-left:3px solid ${meta.color}">
+              <div style="font-size:20px;line-height:1.4">${meta.icon}</div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:11px;color:${meta.color};text-transform:uppercase;font-weight:700;margin-bottom:4px">${meta.label}</div>
+                <div style="font-size:14px;line-height:1.55;color:var(--text-primary)">${escHtml(ins.text)}</div>
+                ${(ins.evidence && ins.evidence.length) ? `
+                  <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">
+                    ${ins.evidence.slice(0,4).map(e => `<span class="insight-chip" style="font-size:10px">${escHtml(e)}</span>`).join('')}
+                  </div>` : ''}
+              </div>
+            </div>`
+        }).join('')}
+      </div>
+    </div>`
+}
+
+function renderTrends(r) {
+  const t = r.trends
+  if (!t) return ''
+  const sent = t.sentiment
+  const beh = t.behavior
+
+  const sentBar = (label, val, color) => `
+    <div style="margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-bottom:3px">
+        <span>${label}</span><span>${pctText(val)}</span>
+      </div>
+      <div style="height:6px;background:rgba(255,255,255,0.05);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${(val*100).toFixed(1)}%;background:${color}"></div>
+      </div>
+    </div>`
+
+  const behBar = (key, val) => sentBar(BEHAVIOR_LABEL_KO[key], val, '#3b82f6')
+
+  return `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;align-items:start">
+      <div class="card">
+        <div class="card-header"><div class="card-title"><i class="fas fa-fire" style="color:#ef4444"></i> 콘텐츠 트렌드</div></div>
+        <div class="card-body" style="padding:12px 14px">
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:6px">콘텐츠 TOP</div>
+          ${(t.content.topContents || []).slice(0,5).map(c => `
+            <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0">
+              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(c.title)}</span>
+              <span style="color:var(--text-muted)">${c.count}</span>
+            </div>`).join('') || '<div style="font-size:11px;color:var(--text-muted)">없음</div>'}
+          ${(t.content.topActors || []).length ? `
+            <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin:10px 0 6px">배우</div>
+            ${t.content.topActors.slice(0,3).map(a => `
+              <div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0">
+                <span>${escHtml(a.name)}</span><span style="color:var(--text-muted)">${a.count}</span>
+              </div>`).join('')}` : ''}
+          ${(t.content.topKeywords || []).length ? `
+            <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin:10px 0 6px">키워드</div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px">
+              ${t.content.topKeywords.slice(0,8).map(k => `<span class="insight-chip" style="font-size:10px">${escHtml(k.keyword)} ${k.count}</span>`).join('')}
+            </div>` : ''}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><div class="card-title"><i class="fas fa-smile" style="color:#10b981"></i> 감정 트렌드</div></div>
+        <div class="card-body" style="padding:14px">
+          ${sentBar('긍정', sent.positiveRatio, '#10b981')}
+          ${sentBar('중립', sent.neutralRatio, '#6b7280')}
+          ${sentBar('부정', sent.negativeRatio, '#ef4444')}
+          <div style="font-size:10px;color:var(--text-muted);margin-top:8px;text-align:center">총 ${sent.total}개 게시글</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><div class="card-title"><i class="fas fa-comments" style="color:#3b82f6"></i> 행동 트렌드</div></div>
+        <div class="card-body" style="padding:14px">
+          ${behBar('discussion', beh.ratios.discussion)}
+          ${behBar('review', beh.ratios.review)}
+          ${behBar('recommendation', beh.ratios.recommendation)}
+          ${behBar('question', beh.ratios.question)}
+          <div style="font-size:10px;color:var(--text-muted);margin-top:8px;text-align:center">총 ${beh.total}개 게시글</div>
+        </div>
+      </div>
+    </div>`
+}
+
+function renderSentimentTopics(r) {
+  const bt = r.trends?.sentiment?.byTopics
+  if (!bt) return ''
+  const hasAny = (bt.positive?.length || 0) + (bt.negative?.length || 0) + (bt.neutral?.length || 0)
+  if (!hasAny) return ''
+
+  const col = (sent, list, color, label, icon) => `
+    <div style="border-left:3px solid ${color};padding:10px 14px;background:rgba(255,255,255,0.02);border-radius:8px">
+      <div style="font-size:12px;font-weight:700;color:${color};margin-bottom:8px">${icon} ${label} 반응</div>
+      ${list.length === 0
+        ? '<div style="font-size:11px;color:var(--text-muted)">매칭 토픽 없음</div>'
+        : list.map(t => `
+          <div style="margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:600;margin-bottom:3px">
+              <span>${escHtml(t.topic)}</span>
+              <span style="color:var(--text-muted);font-weight:400">${t.count}건</span>
+            </div>
+            ${t.representative ? `
+              <div style="font-size:11px;color:var(--text-muted);line-height:1.5;padding:5px 8px;background:rgba(255,255,255,0.03);border-radius:4px;border-left:2px solid ${color}">
+                <i class="fas fa-quote-left" style="font-size:8px;opacity:0.4;margin-right:4px"></i>
+                ${escHtml(t.representative)}
+              </div>` : ''}
+          </div>`).join('')}
+    </div>`
+
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title"><i class="fas fa-comment-dots" style="color:#10b981"></i> 감정별 주요 논의 주제</div>
+        <span style="font-size:11px;color:var(--text-muted)">각 감정 TOP 3 토픽 + 대표 인용</span>
+      </div>
+      <div class="card-body" style="padding:14px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+        ${col('positive', bt.positive || [], '#10b981', '긍정', '👍')}
+        ${col('neutral',  bt.neutral  || [], '#6b7280', '중립', '💭')}
+        ${col('negative', bt.negative || [], '#ef4444', '부정', '👎')}
+      </div>
+    </div>`
+}
+
+function renderSubredditInsights(r) {
+  const subs = r.subredditInsights || []
+  if (subs.length === 0) return ''
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title"><i class="fab fa-reddit" style="color:#ff6534"></i> 서브레딧별 특성</div>
+        <span style="font-size:11px;color:var(--text-muted)">${subs.length}개 커뮤니티</span>
+      </div>
+      <div class="card-body" style="padding:14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
+        ${subs.map(s => {
+          const total = s.sentiment.positive + s.sentiment.negative + s.sentiment.neutral || 1
+          const pos = (s.sentiment.positive / total * 100).toFixed(0)
+          const neu = (s.sentiment.neutral / total * 100).toFixed(0)
+          const neg = (s.sentiment.negative / total * 100).toFixed(0)
+          return `
+            <a href="https://www.reddit.com/r/${s.subreddit}/" target="_blank" rel="noopener noreferrer"
+               style="display:block;padding:12px;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(255,255,255,0.05);text-decoration:none;color:inherit">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+                <span style="font-weight:600;color:#ff6534">r/${escHtml(s.subreddit)}</span>
+                <span style="font-size:11px;color:var(--text-muted)">${s.postCount}건</span>
+              </div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${escHtml(s.characteristic)} · 주 행동: ${BEHAVIOR_LABEL_KO[s.topBehavior] || s.topBehavior}</div>
+              <div style="display:flex;height:5px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,0.05)">
+                <div style="width:${pos}%;background:#10b981"></div>
+                <div style="width:${neu}%;background:#6b7280"></div>
+                <div style="width:${neg}%;background:#ef4444"></div>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:10px;margin-top:4px;color:var(--text-muted)">
+                <span style="color:#10b981">긍 ${pos}%</span>
+                <span>중 ${neu}%</span>
+                <span style="color:#ef4444">부 ${neg}%</span>
+              </div>
+            </a>`
+        }).join('')}
+      </div>
+    </div>`
+}
+
+const OPINION_LABEL_KO = {
+  praise: '칭찬', criticism: '비판', question: '질문', recommendation: '추천',
+}
+
+const DEBATE_DIR_META = {
+  positive:   { color: '#10b981', icon: '👍', label: '긍정 우세' },
+  negative:   { color: '#ef4444', icon: '👎', label: '부정 우세' },
+  mixed:      { color: '#f59e0b', icon: '⚖️', label: '의견 갈림' },
+  discussion: { color: '#6b7280', icon: '💭', label: '정보·질문' },
+}
+
+const SENT_COLOR = { positive: '#10b981', negative: '#ef4444', neutral: '#9ca3af' }
+const SENT_ICON  = { positive: '👍', negative: '👎', neutral: '·' }
+
+function renderCommentDebates(debates) {
+  if (!debates || debates.length === 0) return ''
+  return `
+    <div style="margin-bottom:10px">
+      <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:6px">🗣️ 댓글 쟁점 클러스터 TOP ${debates.length}</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${debates.map((d, idx) => {
+          const meta = DEBATE_DIR_META[d.opinionDirection] || DEBATE_DIR_META.discussion
+          return `
+            <div style="padding:10px 12px;background:rgba(255,255,255,0.02);border-radius:6px;border-left:3px solid ${meta.color}">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:6px">
+                <div style="font-weight:700;font-size:13px;flex:1;min-width:0">
+                  <span style="color:${meta.color};margin-right:6px">[주제 ${idx+1}]</span>
+                  ${escHtml(d.topic)}
+                </div>
+                <span style="font-size:10px;color:${meta.color};white-space:nowrap;font-weight:600">${meta.icon} ${escHtml(d.opinionDistribution.mixedLabel)} · ${d.count}건</span>
+              </div>
+
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">
+                <span style="color:#a78bfa;font-weight:600">설명 ·</span> ${escHtml(d.description)}
+              </div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">
+                <span style="color:#a78bfa;font-weight:600">맥락 ·</span> ${escHtml(d.context)}
+              </div>
+
+              ${(d.representatives && d.representatives.length) ? `
+                <div style="margin:6px 0">
+                  <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:3px">주요 의견</div>
+                  ${d.representatives.map(r => `
+                    <div style="font-size:11px;padding:5px 9px;background:rgba(255,255,255,0.025);border-left:2px solid ${SENT_COLOR[r.sentiment]};margin-bottom:3px;border-radius:3px;line-height:1.5">
+                      <span style="margin-right:5px">${SENT_ICON[r.sentiment]}</span>
+                      "${escHtml(r.body)}"
+                      <span style="float:right;color:var(--text-muted);font-size:10px">▲${r.score}</span>
+                    </div>`).join('')}
+                </div>` : ''}
+
+              <div style="font-size:11px;color:#fbbf24;line-height:1.5;padding:6px 9px;background:rgba(251,191,36,0.06);border-radius:3px;margin-top:6px">
+                <span style="font-weight:600">해석 ·</span> ${escHtml(d.interpretation)}
+              </div>
+            </div>`
+        }).join('')}
+      </div>
+    </div>`
+}
+
+function renderDeepAnalysis(r) {
+  const list = r.deepAnalysis || []
+  if (list.length === 0) return ''
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title"><i class="fas fa-microscope" style="color:#8b5cf6"></i> TOP5 딥 분석</div>
+        <span style="font-size:11px;color:var(--text-muted)">감정·의견 유형·반응 원인</span>
+      </div>
+      <div class="card-body" style="padding:0">
+        ${list.map((d, i) => {
+          const total = d.sentiment.positive + d.sentiment.negative || 1
+          const pos = (d.sentiment.positiveRatio * 100).toFixed(0)
+          const neg = (d.sentiment.negativeRatio * 100).toFixed(0)
+          const opTotal = Object.values(d.opinionTypes).reduce((a,b)=>a+b,0) || 1
+          return `
+            <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.05)">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:6px">
+                <div style="font-weight:600;flex:1;min-width:0">
+                  <span style="color:#8b5cf6;margin-right:6px">#${i+1}</span>
+                  <a href="${d.url}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none">${escHtml(d.title)}</a>
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);white-space:nowrap">r/${d.subreddit} · 💬${d.commentCount}</div>
+              </div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;line-height:1.5">${escHtml(d.summary)}</div>
+
+              <!-- 인기 사유 (자연어) -->
+              ${d.popularityReason ? `
+                <div style="padding:10px 12px;background:rgba(139,92,246,0.08);border-left:3px solid #8b5cf6;border-radius:4px;margin-bottom:10px;font-size:12px;line-height:1.6">
+                  <div style="font-size:10px;color:#a78bfa;text-transform:uppercase;font-weight:700;margin-bottom:4px">🎯 인기 사유</div>
+                  ${escHtml(d.popularityReason)}
+                </div>` : ''}
+
+              <!-- 댓글 감정 자연어 요약 -->
+              ${d.sentimentSummary ? `
+                <div style="padding:8px 12px;background:rgba(16,185,129,0.06);border-left:3px solid #10b981;border-radius:4px;margin-bottom:10px;font-size:12px;line-height:1.55">
+                  <div style="font-size:10px;color:#34d399;text-transform:uppercase;font-weight:700;margin-bottom:3px">💬 댓글 감정 분포</div>
+                  ${escHtml(d.sentimentSummary)}
+                  ${total > 1 ? `
+                    <div style="margin-top:6px;display:flex;height:5px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,0.05)">
+                      <div style="width:${pos}%;background:#10b981"></div>
+                      <div style="width:${neg}%;background:#ef4444"></div>
+                    </div>` : ''}
+                </div>` : ''}
+
+              ${renderCommentDebates(d.commentDebates)}
+
+              <!-- 의견 유형 + 반응 원인 chips -->
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:10px">
+                <div>
+                  <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">의견 유형</div>
+                  ${Object.entries(d.opinionTypes).map(([k,v]) => v > 0 ? `
+                    <div style="display:flex;justify-content:space-between;font-size:11px;padding:1px 0">
+                      <span>${OPINION_LABEL_KO[k]}</span><span style="color:var(--text-muted)">${v}</span>
+                    </div>` : '').join('') || '<div style="font-size:11px;color:var(--text-muted)">없음</div>'}
+                </div>
+                <div>
+                  <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">반응 패턴</div>
+                  <div style="font-size:11px;line-height:1.5">${escHtml(d.reactionCause)}</div>
+                </div>
+              </div>
+
+              ${(d.topComments && d.topComments.length) ? `
+                <div style="margin-top:8px">
+                  <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">대표 댓글</div>
+                  ${d.topComments.map(c => `
+                    <div style="font-size:11px;padding:6px 10px;background:rgba(255,255,255,0.02);border-left:2px solid #8b5cf6;margin-bottom:4px;border-radius:3px;line-height:1.5">
+                      <i class="fas fa-quote-left" style="font-size:8px;opacity:0.4;margin-right:4px"></i>
+                      ${escHtml(c.body.slice(0, 200))}${c.body.length > 200 ? '…' : ''}
+                      <span style="float:right;color:var(--text-muted);font-size:10px">▲${c.score}</span>
+                    </div>`).join('')}
+                </div>` : ''}
+            </div>`
+        }).join('')}
+      </div>
+    </div>`
+}
+
+// ============================================================
 // Page: Dashboard
 // ============================================================
 function renderDashboard() {
@@ -239,14 +576,18 @@ function renderDashboard() {
         </div>
       </div>
 
-      <!-- Reddit 버즈 -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start">
+      ${renderKoreanInsights(r)}
+      ${renderTrends(r)}
+      ${renderSentimentTopics(r)}
+      ${renderSubredditInsights(r)}
 
-        <!-- Reddit 버즈 TOP 5 -->
+      <!-- Reddit 토론 TOP 5 -->
+      <div>
+
         <div class="card">
           <div class="card-header" style="border-left:3px solid #ff6534">
             <div class="card-title">
-              <i class="fab fa-reddit" style="color:#ff6534"></i> Reddit 버즈
+              <i class="fab fa-reddit" style="color:#ff6534"></i> Reddit 토론 TOP 5
             </div>
             <div style="display:flex;align-items:center;gap:8px">
               <span style="font-size:10px;color:var(--text-muted)">댓글 수 기준</span>
@@ -285,22 +626,9 @@ function renderDashboard() {
           </div>
         </div>
 
-        <!-- TOP 30 전체 목록 -->
-        <div class="card">
-          <div class="card-header" style="border-left:3px solid var(--accent-blue)">
-            <div class="card-title">
-              <i class="fas fa-list" style="color:var(--accent-blue)"></i> 전체 TOP ${allContents.length}
-            </div>
-            <span style="font-size:10px;color:var(--text-muted)">종합 점수 순</span>
-          </div>
-          <div class="card-body" style="padding:4px 14px">
-            ${allContents.length === 0
-              ? '<div class="plat-empty">데이터 없음</div>'
-              : allContents.slice(0, 10).map((c, i) => rankItem(c, i)).join('')}
-          </div>
-        </div>
-
       </div>
+
+      ${renderDeepAnalysis(r)}
 
       <!-- Insights -->
       <div class="card">
@@ -321,63 +649,6 @@ function renderDashboard() {
             </div>`).join('')}
         </div>
       </div>
-
-      <!-- Reddit Summary -->
-      ${r.redditSummary ? `
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title"><i class="fab fa-reddit" style="color:#ff6534"></i> Reddit 커뮤니티 요약</div>
-        </div>
-        <div class="card-body">
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px">
-            <div>
-              <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:10px;font-weight:600">📋 추천 요청</div>
-              ${(r.redditSummary.recommendations || []).slice(0,5).map(rec => `
-                <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px">
-                  <span>${escHtml(rec.title)}</span>
-                  <span style="color:var(--text-muted)">${rec.count}회</span>
-                </div>`).join('')}
-            </div>
-            <div>
-              <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:10px;font-weight:600">⭐ 리뷰 언급</div>
-              ${(r.redditSummary.reviews || []).slice(0,5).map(rev => `
-                <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px">
-                  <span>${escHtml(rev.title)}</span>
-                  <span class="badge ${rev.sentiment === 'positive' ? 'badge-success' : rev.sentiment === 'negative' ? 'badge-failed' : 'badge-new'}">${rev.sentiment}</span>
-                </div>`).join('')}
-            </div>
-            <div>
-              <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:10px;font-weight:600">🌏 문화 질문</div>
-              ${(r.redditSummary.culturalQuestions || []).slice(0,5).map(q => `
-                <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px">
-                  <span>${escHtml(q.topic)}</span>
-                  <span style="color:var(--text-muted)">${q.count}회</span>
-                </div>`).join('')}
-            </div>
-          </div>
-          ${r.redditSummary.hotPosts?.length ? `
-          <div style="margin-top:16px;border-top:1px solid rgba(255,255,255,0.06);padding-top:14px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-              <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;font-weight:600">🔥 인기 포스트</div>
-              <button class="btn btn-outline" style="padding:3px 10px;font-size:11px" onclick="navigateTo('reddit')">전체 보기 →</button>
-            </div>
-            ${(r.redditSummary.hotPosts || []).slice(0,3).map(p => `
-              <div class="reddit-post">
-                <a class="reddit-title-link" href="${p.url}" target="_blank" rel="noopener noreferrer">
-                  ${escHtml(p.title)}
-                  <i class="fas fa-external-link-alt" style="font-size:10px;margin-left:5px;opacity:0.5"></i>
-                </a>
-                <div class="reddit-meta">
-                  <a href="https://reddit.com/r/${p.subreddit}" target="_blank" rel="noopener noreferrer" style="color:#ff6534;text-decoration:none">r/${p.subreddit}</a>
-                  <span>▲ ${p.score}</span>
-                  <span>💬 ${p.commentCount}</span>
-                  <span>${timeAgo(p.createdAt)}</span>
-                  ${p.flair ? `<span class="badge badge-new">${escHtml(p.flair)}</span>` : ''}
-                </div>
-              </div>`).join('')}
-          </div>` : ''}
-        </div>
-      </div>` : ''}
 
     </div>`
 }
@@ -427,6 +698,8 @@ function renderReddit() {
       </button>
     </div>
     <div style="padding:20px 28px;display:flex;flex-direction:column;gap:16px">
+
+      ${renderDeepAnalysis(r)}
 
       <!-- 필터 바 -->
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -895,7 +1168,9 @@ function updateSourceCard(id) {
 async function loadLatestReport() {
   try {
     const res = await API.latestReport(state.reportType)
-    if (res.ok && res.report) state.currentReport = res.report
+    if (res.ok && res.report) {
+      state.currentReport = res.report.data || res.report
+    }
   } catch (e) { console.warn('최신 리포트 로드 실패:', e) }
 }
 
@@ -1097,7 +1372,7 @@ async function loadAndShowReport(id) {
   try {
     const res = await API.report(id)
     if (res.ok) {
-      state.currentReport = res.report
+      state.currentReport = res.report.data || res.report
       navigateTo('dashboard')
       toast('리포트를 불러왔습니다', 'success')
     }

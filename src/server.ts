@@ -16,7 +16,7 @@ import { demoRedditPosts } from './demo-data.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
-const PORT = 3000
+const PORT = Number(process.env.PORT) || 3366
 
 app.use(cors())
 app.use(express.json())

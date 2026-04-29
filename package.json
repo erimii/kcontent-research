@@ -10,7 +10,7 @@
     "demo": "curl -s -X POST http://localhost:3000/api/crawl/demo | python3 -m json.tool"
   },
   "dependencies": {
-    "better-sqlite3": "^9.4.3",
+    "better-sqlite3": "^12.9.0",
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "playwright": "^1.52.0"

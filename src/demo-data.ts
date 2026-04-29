@@ -8,7 +8,7 @@ export const demoRedditPosts: RedditPost[] = [
   {
     id: 'demo1', subreddit: 'kdramas',
     title: 'Just finished "When the Stars Gossip" and I am OBSESSED - anyone else?',
-    url: 'https://reddit.com/r/kdramas/demo1', score: 2341, commentCount: 187,
+    url: 'https://www.reddit.com/r/kdramas/', score: 2341, commentCount: 187,
     createdAt: new Date(Date.now() - 2 * 3600000).toISOString(), flair: 'Discussion',
     comments: [
       { id: 'c1', body: 'The chemistry between the leads is absolutely insane. Best drama of 2025 so far!', score: 432, depth: 0 },
@@ -19,7 +19,7 @@ export const demoRedditPosts: RedditPost[] = [
   {
     id: 'demo2', subreddit: 'kdramas',
     title: 'Recommend me something similar to "Squid Game" - intense, survival, thriller',
-    url: 'https://reddit.com/r/kdramas/demo2', score: 1876, commentCount: 234,
+    url: 'https://www.reddit.com/r/kdramas/', score: 1876, commentCount: 234,
     createdAt: new Date(Date.now() - 5 * 3600000).toISOString(), flair: 'Recommendations',
     comments: [
       { id: 'c4', body: '"Sweet Home" season 3 just dropped and its incredible', score: 521, depth: 0 },
@@ -30,7 +30,7 @@ export const demoRedditPosts: RedditPost[] = [
   {
     id: 'demo3', subreddit: 'kdrama',
     title: '"My Mister" rewatch - still the best Korean drama ever made, change my mind',
-    url: 'https://reddit.com/r/kdrama/demo3', score: 3102, commentCount: 412,
+    url: 'https://www.reddit.com/r/kdrama/', score: 3102, commentCount: 412,
     createdAt: new Date(Date.now() - 8 * 3600000).toISOString(), flair: 'Review',
     comments: [
       { id: 'c7', body: "My Mister transcends the kdrama genre entirely. IU's performance is career-defining.", score: 876, depth: 0 },
@@ -40,7 +40,7 @@ export const demoRedditPosts: RedditPost[] = [
   {
     id: 'demo4', subreddit: 'kdramarecommends',
     title: 'Looking for dramas with strong female leads like "Crash Landing on You"',
-    url: 'https://reddit.com/r/kdramarecommends/demo4', score: 987, commentCount: 156,
+    url: 'https://www.reddit.com/r/kdramarecommends/', score: 987, commentCount: 156,
     createdAt: new Date(Date.now() - 12 * 3600000).toISOString(), flair: 'Request',
     comments: [
       { id: 'c9', body: "\"It's Okay to Not Be Okay\" - Seo Ye-ji is a powerhouse", score: 342, depth: 0 },
@@ -50,7 +50,7 @@ export const demoRedditPosts: RedditPost[] = [
   {
     id: 'demo5', subreddit: 'kdramas',
     title: 'Squid Game Season 2 vs Season 1 - honest thoughts after full rewatch',
-    url: 'https://reddit.com/r/kdramas/demo5', score: 4521, commentCount: 623,
+    url: 'https://www.reddit.com/r/kdramas/', score: 4521, commentCount: 623,
     createdAt: new Date(Date.now() - 18 * 3600000).toISOString(), flair: 'Discussion',
     comments: [
       { id: 'c11', body: 'Season 1 is objectively better but S2 has its moments. The ending sets up S3 perfectly.', score: 1021, depth: 0 },
@@ -60,7 +60,7 @@ export const demoRedditPosts: RedditPost[] = [
   {
     id: 'demo6', subreddit: 'korean',
     title: 'Best way to learn Korean through dramas? Intermediate learner here',
-    url: 'https://reddit.com/r/korean/demo6', score: 743, commentCount: 89,
+    url: 'https://www.reddit.com/r/korean/', score: 743, commentCount: 89,
     createdAt: new Date(Date.now() - 24 * 3600000).toISOString(), flair: 'Learning',
     comments: [
       { id: 'c13', body: 'Start with slice of life dramas - Reply 1988 is perfect for natural Korean', score: 321, depth: 0 },
@@ -70,7 +70,7 @@ export const demoRedditPosts: RedditPost[] = [
   {
     id: 'demo7', subreddit: 'kdramas',
     title: '"Lovely Runner" just became my all-time favorite - the ending destroyed me',
-    url: 'https://reddit.com/r/kdramas/demo7', score: 2876, commentCount: 334,
+    url: 'https://www.reddit.com/r/kdramas/', score: 2876, commentCount: 334,
     createdAt: new Date(Date.now() - 36 * 3600000).toISOString(), flair: 'Review',
     comments: [
       { id: 'c15', body: 'Byeon Woo-seok was absolutely robbed at every award ceremony', score: 654, depth: 0 },
@@ -80,7 +80,7 @@ export const demoRedditPosts: RedditPost[] = [
   {
     id: 'demo8', subreddit: 'kdramas',
     title: "Why is \"Pachinko\" season 2 not talked about more?? It's masterpiece level",
-    url: 'https://reddit.com/r/kdramas/demo8', score: 1654, commentCount: 201,
+    url: 'https://www.reddit.com/r/kdramas/', score: 1654, commentCount: 201,
     createdAt: new Date(Date.now() - 48 * 3600000).toISOString(), flair: 'Discussion',
     comments: [
       { id: 'c17', body: 'Pachinko deserves every award. The generational storytelling is unmatched.', score: 487, depth: 0 },
@@ -90,7 +90,7 @@ export const demoRedditPosts: RedditPost[] = [
   {
     id: 'demo9', subreddit: 'koreatravel',
     title: 'Seoul travel guide - filming locations from my favorite kdramas!',
-    url: 'https://reddit.com/r/koreatravel/demo9', score: 892, commentCount: 67,
+    url: 'https://www.reddit.com/r/koreatravel/', score: 892, commentCount: 67,
     createdAt: new Date(Date.now() - 6 * 3600000).toISOString(), flair: 'Travel Tips',
     comments: [
       { id: 'c19', body: 'Bukchon Hanok Village from Crash Landing on You is beautiful in person', score: 234, depth: 0 },
@@ -99,7 +99,7 @@ export const demoRedditPosts: RedditPost[] = [
   {
     id: 'demo10', subreddit: 'kdramas',
     title: '"Squid Game" season 3 trailer reaction - community thoughts',
-    url: 'https://reddit.com/r/kdramas/demo10', score: 5234, commentCount: 789,
+    url: 'https://www.reddit.com/r/kdramas/', score: 5234, commentCount: 789,
     createdAt: new Date(Date.now() - 1 * 3600000).toISOString(), flair: 'News',
     comments: [
       { id: 'c20', body: 'The trailer alone broke Netflix records. This is going to be insane.', score: 1432, depth: 0 },

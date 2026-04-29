@@ -10,7 +10,7 @@
 import type { RedditPost } from '../types/index.js'
 import { isKoreanRedditPost } from '../pipeline/korean-filter.js'
 
-const DEFAULT_SUBREDDITS = ['kdramas', 'kdrama', 'kdramarecommends', 'korean', 'koreatravel']
+const DEFAULT_SUBREDDITS = ['kdramas', 'kdrama', 'kdramarecommends', 'korean']
 
 const ONE_WEEK_SEC = 7 * 24 * 60 * 60
 
@@ -52,13 +52,23 @@ async function fetchRSS(subreddit: string, sort: 'hot' | 'new'): Promise<RedditP
     if (postSec && postSec < cutoff) continue
 
     const link =
-      entry.match(/<link rel="alternate"[^>]+href="([^"]+)"/)?.[1] ||
+      entry.match(/<link[^>]*\bhref="([^"]+)"/)?.[1] ||
       entry.match(/<id>(https?:\/\/[^<]+)<\/id>/)?.[1] || ''
 
     const idMatch = link.match(/comments\/([a-z0-9]+)\//)
     const id = idMatch?.[1] || `rss_${sort}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
 
     const flair = entry.match(/<category[^>]+label="([^"]+)"/)?.[1]
+
+    // 본문 추출: <content type="html">...</content> 안의 HTML을 평문으로
+    const contentRaw = decodeEntities(entry.match(/<content[^>]*>([\s\S]*?)<\/content>/)?.[1] || '')
+    const selftext = contentRaw
+      .replace(/<!--[\s\S]*?-->/g, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&[a-z#0-9]+;/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 2000)
 
     // 최신성 보너스: 24시간 이내=100, 3일=50, 7일=10
     const ageSec = nowSec - postSec
@@ -68,6 +78,7 @@ async function fetchRSS(subreddit: string, sort: 'hot' | 'new'): Promise<RedditP
       id,
       subreddit,
       title,
+      selftext,
       url: link,
       score: recencyScore,    // RSS에 score 없음 → 최신성으로 대체 (댓글 수집 후 재산정)
       commentCount: 0,        // 댓글 RSS 수집 후 업데이트
@@ -85,7 +96,7 @@ async function fetchRSS(subreddit: string, sort: 'hot' | 'new'): Promise<RedditP
 // ============================================================
 async function fetchCommentsRSS(post: RedditPost): Promise<{ comments: RedditPost['comments'], count: number }> {
   try {
-    const url = `https://www.reddit.com/r/${post.subreddit}/comments/${post.id}.rss?limit=25`
+    const url = `https://www.reddit.com/r/${post.subreddit}/comments/${post.id}.rss?limit=100`
     const res = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
@@ -114,7 +125,7 @@ async function fetchCommentsRSS(post: RedditPost): Promise<{ comments: RedditPos
           depth: 0,
         })
       }
-      if (comments.length >= 8) break
+      if (comments.length >= 50) break
     }
 
     // totalEntries - 1 = 실제 댓글 수 (첫 entry는 포스트 본문)
