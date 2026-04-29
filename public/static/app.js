@@ -937,11 +937,11 @@ function renderDashboard() {
         </div>
       </div>
 
+      <div id="gtrends-section"></div>
       ${renderKoreanInsights(r)}
       ${renderTrends(r)}
       ${renderSentimentTopics(r)}
       ${renderSubredditInsights(r)}
-      <div id="gtrends-section"></div>
       <div id="mdl-section"></div>
       <script>if(typeof loadMdlSummary==='function')loadMdlSummary()</script>
 
