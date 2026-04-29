@@ -293,3 +293,44 @@ export interface MdlSummary {
     overallSentimentSummary: string
   }
 }
+
+// ============================================================
+// Google Trends — 북미 거시 트렌드 + K-콘텐츠 비교
+// ============================================================
+
+export type TrendCategory =
+  | 'sports' | 'entertainment' | 'tech' | 'politics' | 'finance'
+  | 'kcontent' | 'lifestyle' | 'news' | 'other'
+
+export interface GTrendsItem {
+  title: string                  // 검색어
+  traffic: string                // "2000+" 등
+  trafficValue: number           // 정렬용 숫자 (2000)
+  publishedAt?: string
+  pictureSource?: string
+  newsItems: { title: string; source: string; url: string }[]
+  category: TrendCategory
+  isKContent: boolean
+  kKeywords?: string[]           // 매칭된 K 키워드 (있으면)
+}
+
+export interface GTrendsCategoryStat {
+  category: TrendCategory
+  label: string                  // 한글 라벨
+  count: number
+  totalTraffic: number
+}
+
+export interface GTrendsSummary {
+  fetchedAt: string
+  cached: boolean
+  expiresAt: string
+  geo: string                    // 'US'
+  totalItems: number
+  topItems: GTrendsItem[]        // 전체 (카테고리 분류 포함)
+  kItems: GTrendsItem[]          // K-콘텐츠만 필터
+  categoryStats: GTrendsCategoryStat[]
+  oneLineSummary: string         // "현재 북미에서 무엇이 화제인지" 한 줄
+  kInsight: string               // K-콘텐츠 위치 분석 (자연어)
+  comparison: string             // 비교 인사이트 (자연어)
+}

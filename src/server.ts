@@ -15,7 +15,8 @@ import {
 import { runPipeline } from './pipeline/index.js'
 import { demoRedditPosts } from './demo-data.js'
 import { analyzeMdlDramas } from './pipeline/mdlAnalysis.js'
-import type { MdlSummary } from './types/index.js'
+import { buildGTrendsSummary } from './pipeline/gtrendsAnalysis.js'
+import type { MdlSummary, GTrendsSummary } from './types/index.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -216,6 +217,10 @@ app.get('/api/newsletter/:id', (req, res) => {
     const mdl = mdlCache?.data
     const top3Dramas = (mdl?.dramas || []).slice(0, 3)
 
+    // GTrends 캐시
+    const gtCache = getMdlCache<GTrendsSummary>('us_daily_v1')
+    const gt = gtCache?.data
+
     // 서브레딧 mini
     const subInsights = (r.subredditInsights || []) as any[]
 
@@ -352,6 +357,49 @@ app.get('/api/newsletter/:id', (req, res) => {
         </table>
       </td></tr>` : ''}
 
+      <!-- Google Trends — 북미 거시 + K-콘텐츠 비교 -->
+      ${gt ? `
+      <tr><td style="background:#fff;padding:24px 36px;border-left:1px solid #e0e4ef;border-right:1px solid #e0e4ef">
+        <div style="font-size:14px;font-weight:700;color:#1a1a2e;margin-bottom:14px;padding-bottom:8px;border-bottom:2px solid #f0f2f8">🌎 북미 트렌드 분석 (Google Trends · ${escNl(gt.geo)})</div>
+
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr><td style="padding:0 0 10px">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-left:3px solid #22d3ee;background:#f0fbff;border-radius:6px">
+              <tr><td style="padding:12px 14px">
+                <div style="font-size:11px;color:#22d3ee;font-weight:700;text-transform:uppercase;margin-bottom:4px">① 북미 거시 트렌드</div>
+                <div style="font-size:12px;line-height:1.6;color:#1a1a2e">${escNl(gt.oneLineSummary)}</div>
+                ${(gt.topItems || []).slice(0, 5).length > 0 ? `
+                  <div style="margin-top:8px;font-size:11px;color:#5d6680">
+                    <strong>TOP 5</strong>: ${(gt.topItems || []).slice(0, 5).map((it: any) => `${escNl(it.title)} <span style="color:#9ba3bf">(${escNl(it.traffic)})</span>`).join(' · ')}
+                  </div>` : ''}
+              </td></tr>
+            </table>
+          </td></tr>
+
+          <tr><td style="padding:0 0 10px">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-left:3px solid #ef4444;background:#fef5f5;border-radius:6px">
+              <tr><td style="padding:12px 14px">
+                <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:4px">② K-콘텐츠 트렌드</div>
+                <div style="font-size:12px;line-height:1.6;color:#1a1a2e">${escNl(gt.kInsight)}</div>
+                ${(gt.kItems || []).slice(0, 3).length > 0 ? `
+                  <div style="margin-top:6px;font-size:11px;color:#5d6680">
+                    ${(gt.kItems || []).slice(0, 3).map((it: any) => `<strong>${escNl(it.title)}</strong> (${escNl(it.traffic)})`).join(' · ')}
+                  </div>` : ''}
+              </td></tr>
+            </table>
+          </td></tr>
+
+          <tr><td>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-left:3px solid #22d3ee;background:#f0fbff;border-radius:6px">
+              <tr><td style="padding:12px 14px">
+                <div style="font-size:11px;color:#22d3ee;font-weight:700;text-transform:uppercase;margin-bottom:4px">③ 트렌드 비교 인사이트</div>
+                <div style="font-size:12px;line-height:1.65;color:#1a1a2e">${escNl(gt.comparison)}</div>
+              </td></tr>
+            </table>
+          </td></tr>
+        </table>
+      </td></tr>` : ''}
+
       <!-- 서브레딧 mini -->
       ${subInsights.length > 0 ? `
       <tr><td style="background:#fff;padding:24px 36px;border-left:1px solid #e0e4ef;border-right:1px solid #e0e4ef">
@@ -366,7 +414,7 @@ app.get('/api/newsletter/:id', (req, res) => {
       <!-- Footer -->
       <tr><td style="background:#fff;padding:20px 36px;border:1px solid #e0e4ef;border-top:none;border-radius:0 0 16px 16px;text-align:center;color:#9ba3bf;font-size:11px;line-height:1.5">
         K-Content Intelligence Dashboard · 자동 생성 리포트 · ${now}<br>
-        <span style="font-size:10px">소스: ${(r.sourceSummary || []).map((s: any) => `${escNl(s.source)}(${s.itemCount})`).join(', ')}${mdl ? ` · MDL(${(mdl.dramas || []).length} 드라마)` : ''}</span>
+        <span style="font-size:10px">소스: ${(r.sourceSummary || []).map((s: any) => `${escNl(s.source)}(${s.itemCount})`).join(', ')}${mdl ? ` · MDL(${(mdl.dramas || []).length} 드라마)` : ''}${gt ? ` · GTrends(${gt.totalItems} 트렌드)` : ''}</span>
       </td></tr>
 
     </table>
@@ -553,6 +601,61 @@ app.post('/api/mdl/refresh', async (req, res) => {
   } catch (e) {
     console.error('[MDL] 오류:', e)
     saveCrawlLog('mdl', 0, 'failed', String(e))
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+// ============================================================
+// Google Trends — 북미 거시 트렌드 + K-콘텐츠 비교
+// ============================================================
+const GTRENDS_CACHE_KEY = 'us_daily_v1'
+const GTRENDS_CACHE_TTL_SEC = 60 * 60  // 1시간
+
+app.get('/api/gtrends', (_req, res) => {
+  try {
+    const cached = getMdlCache<GTrendsSummary>(GTRENDS_CACHE_KEY)
+    if (!cached) return res.json({ ok: true, summary: null, cached: false })
+    res.json({
+      ok: true,
+      summary: { ...cached.data, cached: true, fetchedAt: cached.fetchedAt, expiresAt: cached.expiresAt },
+      cached: true,
+    })
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+app.post('/api/gtrends/refresh', async (req, res) => {
+  try {
+    const force = req.body?.force === true
+    if (!force) {
+      const cached = getMdlCache<GTrendsSummary>(GTRENDS_CACHE_KEY)
+      if (cached) {
+        return res.json({
+          ok: true,
+          summary: { ...cached.data, cached: true, fetchedAt: cached.fetchedAt, expiresAt: cached.expiresAt },
+          cached: true,
+        })
+      }
+    }
+
+    console.log('[GTrends] 새 RSS 수집 시작...')
+    const t0 = Date.now()
+    const summary = await buildGTrendsSummary('US')
+    saveCrawlLog('gtrends', summary.totalItems, summary.totalItems > 0 ? 'success' : 'failed')
+    if (summary.totalItems === 0) {
+      return res.status(503).json({ ok: false, error: 'Google Trends 데이터 0개' })
+    }
+    const ttl = setMdlCache(GTRENDS_CACHE_KEY, summary, GTRENDS_CACHE_TTL_SEC)
+    console.log(`[GTrends] 완료 (${((Date.now() - t0) / 1000).toFixed(1)}s) - ${summary.totalItems}개 트렌드, K ${summary.kItems.length}개`)
+    res.json({
+      ok: true,
+      summary: { ...summary, cached: false, fetchedAt: ttl.fetchedAt, expiresAt: ttl.expiresAt },
+      cached: false,
+    })
+  } catch (e) {
+    console.error('[GTrends] 오류:', e)
+    saveCrawlLog('gtrends', 0, 'failed', String(e))
     res.status(500).json({ ok: false, error: String(e) })
   }
 })

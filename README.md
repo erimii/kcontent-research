@@ -12,6 +12,7 @@
 - **수집**:
   - Reddit Atom RSS (인증 불필요)
   - MyDramaList — Playwright 헤드리스 (Cloudflare 우회)
+  - Google Trends Daily RSS (인증 불필요)
 - **프론트**: Vanilla JS SPA (`public/static/app.js`)
 
 ---
@@ -43,6 +44,12 @@ curl -X POST http://localhost:3366/api/crawl \
 MDL Top Airing 크롤링 (캐시 유효 시 즉시 반환):
 ```bash
 curl -X POST http://localhost:3366/api/mdl/refresh \
+  -H "Content-Type: application/json" -d '{"force":false}'
+```
+
+Google Trends 북미 일간 (캐시 유효 시 즉시 반환):
+```bash
+curl -X POST http://localhost:3366/api/gtrends/refresh \
   -H "Content-Type: application/json" -d '{"force":false}'
 ```
 
@@ -108,6 +115,21 @@ TOP5 포스트마다:
 
 ---
 
+## Google Trends 통합 (북미 거시 + K-콘텐츠 비교)
+
+**별도 파이프라인** ([src/crawlers/gtrends.ts](src/crawlers/gtrends.ts) + [src/pipeline/gtrendsAnalysis.ts](src/pipeline/gtrendsAnalysis.ts))
+
+- **수집**: `https://trends.google.com/trending/rss?geo=US` 데일리 RSS — 검색어/트래픽/뉴스 아이템 추출 (~1.5초)
+- **카테고리 자동 분류**: 스포츠 / 엔터테인먼트 / 기술 / 정치 / 금융 / K-콘텐츠 / 라이프스타일 / 시사 / 기타 (워드 바운더리 정규식 매칭)
+- **K-콘텐츠 필터**: 60+ 키워드 (kdrama/kpop/BTS/Squid Game/배우 이름 등)
+- **3단계 인사이트** (사용자 명세 그대로):
+  - ① 북미 거시 트렌드 — TOP 10 + 카테고리 분포 + 한 줄 요약
+  - ② K-콘텐츠 트렌드 — 매칭된 K 항목 + 매칭 키워드 + 자연어 해석
+  - ③ 비교 인사이트 — K 비율(%)에 따라 4단계 자연어 분기 (주류/부분 진입/소수/부재)
+- **캐시**: `mdl_cache` 테이블 (key `us_daily_v1`), TTL **1시간**
+
+---
+
 ## MyDramaList 통합 (Top Airing K-드라마 분석)
 
 **별도 파이프라인** ([src/crawlers/mdl.ts](src/crawlers/mdl.ts) + [src/pipeline/mdlAnalysis.ts](src/pipeline/mdlAnalysis.ts))
@@ -134,10 +156,11 @@ TOP5 포스트마다:
 3. **🔥 콘텐츠 트렌드 / 😊 감정 트렌드 / 💬 행동 트렌드** (3-칼럼)
 4. **💭 감정별 주요 논의 주제** — 긍정/중립/부정 컬럼별 TOP3 토픽 + 대표 인용
 5. **👥 서브레딧별 특성** — 카드 그리드, 클릭 시 해당 서브레딧 이동
-6. **📺 MDL Top Airing K-드라마 TOP 5** — 포스터/평점/평점 분포/댓글 감정/리뷰 쟁점 클러스터/대표 리뷰. 자동 캐시 로드, "새로고침" 버튼으로 강제 재크롤
-7. **🔥 Reddit 토론 TOP 5** — 댓글 합계 기준 가장 활발한 콘텐츠 클러스터
-8. **🔬 TOP5 딥 분석** — 인기 포스트별 인기 사유 / 감정 / 쟁점 클러스터 / 대표 댓글
-9. **💡 자동 인사이트** — 영문 보조 인사이트 (legacy)
+6. **🌎 북미 트렌드 분석 (Google Trends · US)** — 3단계(거시/K-콘텐츠/비교) 통합 섹션. 자동 캐시 로드, "새로고침" 버튼
+7. **📺 MDL Top Airing K-드라마 TOP 5** — 포스터/평점/평점 분포/댓글 감정/리뷰 쟁점 클러스터/대표 리뷰
+8. **🔥 Reddit 토론 TOP 5** — 댓글 합계 기준 가장 활발한 콘텐츠 클러스터
+9. **🔬 TOP5 딥 분석** — 인기 포스트별 인기 사유 / 감정 / 쟁점 클러스터 / 대표 댓글
+10. **💡 자동 인사이트** — 영문 보조 인사이트 (legacy)
 
 ### Reddit 포스트 페이지
 
@@ -145,13 +168,13 @@ TOP5 포스트마다:
 
 ### 크롤링 페이지 (통합 인터페이스)
 
-- 체크박스로 Reddit / MDL 개별 선택 (default 둘 다 ✅)
-- MDL 카드에 "캐시 무시 강제 새로고침" sub-옵션
+- 체크박스로 Reddit / MDL / Google Trends 개별 선택 (default 셋 다 ✅)
+- MDL·GTrends 카드에 "캐시 무시 강제 새로고침" sub-옵션
 - 단일 "크롤링 시작" 버튼 → `Promise.allSettled`로 **병렬 실행** (한쪽 실패 영향 격리)
 
 ### 뉴스레터 ([src/server.ts](src/server.ts) `/api/newsletter/:id`)
 
-이메일 친화 `<table>` 레이아웃으로 대시보드 핵심을 압축한 정적 HTML — 헤드라인 / 한국어 인사이트 5개 / Reddit 토론 TOP 3 (쟁점 클러스터 1개씩) / **MDL TOP 3** (캐시 자동 합성) / 서브레딧 mini.
+이메일 친화 `<table>` 레이아웃으로 대시보드 핵심을 압축한 정적 HTML — 헤드라인 / 한국어 인사이트 5개 / Reddit 토론 TOP 3 (쟁점 클러스터 1개씩) / **MDL TOP 3** + **GTrends 3단계** (캐시 자동 합성) / 서브레딧 mini.
 
 ---
 
@@ -164,6 +187,8 @@ TOP5 포스트마다:
 | POST | `/api/crawl` | 실제 Reddit 크롤링 + 파이프라인 |
 | GET | `/api/mdl` | MDL 캐시 조회 (없으면 `summary: null`) |
 | POST | `/api/mdl/refresh` | MDL Playwright 크롤링 + 분석 + 캐시 저장 (`{force:true}` 시 캐시 무시) |
+| GET | `/api/gtrends` | Google Trends 캐시 조회 |
+| POST | `/api/gtrends/refresh` | GTrends RSS 수집 + 카테고리 분류 + K-콘텐츠 비교 인사이트 (`{force:true}` 시 캐시 무시) |
 | GET | `/api/reports` | 리포트 목록 (`?type=daily\|weekly`) |
 | GET | `/api/reports/latest/:type` | 최신 리포트 |
 | GET | `/api/reports/:id` | 특정 리포트 |
@@ -186,7 +211,8 @@ src/
 ├── demo-data.ts           ← 샘플 Reddit 포스트 (API 키 없이 테스트용)
 ├── crawlers/
 │   ├── reddit.ts          ← RSS 기반 Reddit 수집 (4개 서브레딧)
-│   └── mdl.ts             ← Playwright 기반 MyDramaList 크롤러
+│   ├── mdl.ts             ← Playwright 기반 MyDramaList 크롤러
+│   └── gtrends.ts         ← Google Trends 데일리 RSS 수집
 ├── pipeline/
 │   ├── index.ts           ← 6단계 오케스트레이션
 │   ├── filter.ts          ← Stage 2 필터링
@@ -194,6 +220,7 @@ src/
 │   ├── deepAnalysis.ts    ← Stage 5 딥 분석 (쟁점 클러스터링)
 │   ├── insight.ts         ← Stage 6 한국어 인사이트 + legacy English
 │   ├── mdlAnalysis.ts     ← MDL 드라마 단위 분석 (deepAnalysis 재활용)
+│   ├── gtrendsAnalysis.ts ← GTrends 카테고리 분류 + K비교 인사이트
 │   ├── normalizer.ts      ← 정규화·드라마 제목 추출
 │   ├── clusterer.ts       ← Jaccard/Levenshtein 타이틀 클러스터링
 │   ├── scorer.ts          ← 종합 점수 산출
@@ -216,7 +243,8 @@ data/k-content.db
 ├── reports           - Reddit 리포트 전체 JSON 저장
 ├── content_snapshots - 콘텐츠별 점수·메타데이터 스냅샷
 ├── crawl_logs        - 크롤링 실행 이력 (Reddit + MDL)
-└── mdl_cache         - MDL Top Airing 분석 결과 (TTL 6h, key='top_airing_v1')
+└── mdl_cache         - MDL Top Airing (key='top_airing_v1', TTL 6h)
+                      + GTrends 북미 (key='us_daily_v1', TTL 1h)
 ```
 
 ---

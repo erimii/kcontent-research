@@ -66,6 +66,8 @@ const state = {
   schedule: null,
   mdlSummary: null,
   mdlLoading: false,
+  gtrendsSummary: null,
+  gtrendsLoading: false,
 }
 
 // ============================================================
@@ -254,6 +256,158 @@ function renderTrends(r) {
           ${behBar('question', beh.ratios.question)}
           <div style="font-size:10px;color:var(--text-muted);margin-top:8px;text-align:center">총 ${beh.total}개 게시글</div>
         </div>
+      </div>
+    </div>`
+}
+
+// ============================================================
+// Google Trends — 북미 거시 트렌드 + K-콘텐츠 비교 (3단계 통합 섹션)
+// ============================================================
+async function loadGTrendsSummary(force = false) {
+  const slot = document.getElementById('gtrends-section')
+  if (!slot) return
+  if (state.gtrendsLoading) return
+  state.gtrendsLoading = true
+
+  if (!force) {
+    try {
+      const r = await fetch('/api/gtrends').then(x => x.json())
+      if (r.ok && r.summary) {
+        state.gtrendsSummary = r.summary
+        slot.innerHTML = renderGTrendsCard(r.summary)
+        state.gtrendsLoading = false
+        return
+      }
+    } catch {}
+  }
+
+  slot.innerHTML = renderGTrendsPlaceholder('loading')
+  try {
+    const r = await fetch('/api/gtrends/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ force }),
+    }).then(x => x.json())
+    if (r.ok && r.summary) {
+      state.gtrendsSummary = r.summary
+      slot.innerHTML = renderGTrendsCard(r.summary)
+    } else {
+      slot.innerHTML = renderGTrendsPlaceholder('error', r.error)
+    }
+  } catch (e) {
+    slot.innerHTML = renderGTrendsPlaceholder('error', String(e))
+  }
+  state.gtrendsLoading = false
+}
+
+function renderGTrendsPlaceholder(mode, errMsg) {
+  if (mode === 'loading') {
+    return `
+      <div class="card">
+        <div class="card-header"><div class="card-title"><i class="fas fa-globe-americas" style="color:#22d3ee"></i> 북미 트렌드 분석 (Google Trends)</div></div>
+        <div class="card-body" style="padding:30px;text-align:center;color:var(--text-muted)">
+          <div class="spinner" style="margin:0 auto 12px"></div>
+          Google Trends RSS 가져오는 중... (~2초)
+        </div>
+      </div>`
+  }
+  if (mode === 'error') {
+    return `
+      <div class="card">
+        <div class="card-header"><div class="card-title"><i class="fas fa-globe-americas" style="color:#22d3ee"></i> 북미 트렌드 분석</div></div>
+        <div class="card-body" style="padding:18px;color:var(--text-muted);font-size:12px">
+          가져오기 실패. <button class="btn btn-outline" style="padding:3px 10px;font-size:11px;margin-left:6px" onclick="loadGTrendsSummary(true)">재시도</button>
+          ${errMsg ? `<div style="margin-top:8px;font-family:monospace;font-size:10px;opacity:0.6">${escHtml(errMsg.slice(0, 200))}</div>` : ''}
+        </div>
+      </div>`
+  }
+  return ''
+}
+
+const GT_CAT_COLOR = {
+  sports: '#f59e0b', entertainment: '#ec4899', tech: '#3b82f6', politics: '#8b5cf6',
+  finance: '#10b981', kcontent: '#ef4444', lifestyle: '#22d3ee', news: '#6b7280', other: '#9ca3af',
+}
+
+function renderGTrendsCard(s) {
+  if (!s) return ''
+  const fetchedDate = new Date(s.fetchedAt)
+  const ago = Math.round((Date.now() - fetchedDate.getTime()) / 60000)
+  const cacheLabel = s.cached
+    ? `<span style="font-size:10px;color:var(--text-muted)">캐시 · ${ago}분 전</span>`
+    : `<span style="font-size:10px;color:#10b981">방금 가져옴</span>`
+
+  // 카테고리 분포 막대 (other 제외하고 표시)
+  const totalForBar = s.categoryStats.reduce((acc, c) => acc + c.count, 0) || 1
+  const catBar = s.categoryStats.map((c) => {
+    const pct = ((c.count / totalForBar) * 100).toFixed(1)
+    return `<div title="${escHtml(c.label)} ${c.count}개" style="flex:${c.count};background:${GT_CAT_COLOR[c.category] || '#9ca3af'};height:100%"></div>`
+  }).join('')
+
+  return `
+    <div class="card" style="border-left:3px solid #22d3ee">
+      <div class="card-header">
+        <div class="card-title"><i class="fas fa-globe-americas" style="color:#22d3ee"></i> 북미 트렌드 분석 (Google Trends · ${escHtml(s.geo)})</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          ${cacheLabel}
+          <button class="btn btn-outline" style="padding:3px 10px;font-size:11px" onclick="loadGTrendsSummary(true)">
+            <i class="fas fa-sync-alt"></i> 새로고침
+          </button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0">
+
+        <!-- ── 1단계: 북미 거시 트렌드 ─────────────────── -->
+        <div style="padding:16px 18px;border-bottom:1px solid rgba(255,255,255,0.05)">
+          <div style="font-size:11px;color:#22d3ee;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">① 북미 거시 트렌드</div>
+          <div style="font-size:13px;line-height:1.6;color:var(--text-primary);margin-bottom:10px">${escHtml(s.oneLineSummary)}</div>
+
+          <!-- 카테고리 분포 막대 -->
+          <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:rgba(255,255,255,0.05);margin-bottom:6px">${catBar}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;font-size:10px;margin-bottom:12px">
+            ${s.categoryStats.map((c) => `
+              <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 7px;background:rgba(255,255,255,0.04);border-radius:10px;color:var(--text-muted)">
+                <span style="width:7px;height:7px;border-radius:50%;background:${GT_CAT_COLOR[c.category] || '#9ca3af'}"></span>
+                ${escHtml(c.label)} ${c.count}
+              </span>`).join('')}
+          </div>
+
+          <!-- TOP 검색어 목록 -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+            ${s.topItems.slice(0, 10).map((it, i) => `
+              <div style="display:flex;align-items:center;gap:8px;padding:5px 9px;background:rgba(255,255,255,0.02);border-radius:4px;border-left:2px solid ${GT_CAT_COLOR[it.category] || '#9ca3af'}">
+                <span style="font-size:10px;color:var(--text-muted);min-width:14px">${i+1}</span>
+                <div style="flex:1;min-width:0;font-size:11.5px;line-height:1.4">
+                  <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(it.title)}${it.isKContent ? ' <span style="color:#ef4444;font-size:10px">🇰🇷</span>' : ''}</div>
+                </div>
+                <span style="font-size:10px;color:${GT_CAT_COLOR[it.category] || '#9ca3af'};white-space:nowrap">${escHtml(it.traffic)}</span>
+              </div>`).join('')}
+          </div>
+        </div>
+
+        <!-- ── 2단계: K-콘텐츠 트렌드 (Within Macro) ────── -->
+        <div style="padding:16px 18px;border-bottom:1px solid rgba(255,255,255,0.05);background:rgba(239,68,68,0.03)">
+          <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">② K-콘텐츠 트렌드 (북미 내)</div>
+          <div style="font-size:13px;line-height:1.6;color:var(--text-primary);margin-bottom:10px">${escHtml(s.kInsight)}</div>
+          ${s.kItems.length > 0 ? `
+            <div style="display:flex;flex-direction:column;gap:5px">
+              ${s.kItems.slice(0, 6).map((it) => `
+                <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(239,68,68,0.06);border-radius:4px;border-left:2px solid #ef4444">
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:12px;font-weight:600">${escHtml(it.title)}</div>
+                    ${it.kKeywords?.length ? `<div style="font-size:10px;color:var(--text-muted);margin-top:2px">매칭: ${it.kKeywords.slice(0,3).map(escHtml).join(', ')}</div>` : ''}
+                  </div>
+                  <span style="font-size:10px;color:#ef4444;white-space:nowrap">${escHtml(it.traffic)}</span>
+                </div>`).join('')}
+            </div>` : `<div style="font-size:11px;color:var(--text-muted);font-style:italic">— 일간 TOP 진입 K-콘텐츠 키워드 없음</div>`}
+        </div>
+
+        <!-- ── 3단계: 비교 인사이트 ──────────────────── -->
+        <div style="padding:16px 18px;background:rgba(34,211,238,0.04)">
+          <div style="font-size:11px;color:#22d3ee;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">③ 트렌드 비교 인사이트</div>
+          <div style="font-size:13px;line-height:1.65;color:var(--text-primary)">${escHtml(s.comparison)}</div>
+        </div>
+
       </div>
     </div>`
 }
@@ -787,6 +941,7 @@ function renderDashboard() {
       ${renderTrends(r)}
       ${renderSentimentTopics(r)}
       ${renderSubredditInsights(r)}
+      <div id="gtrends-section"></div>
       <div id="mdl-section"></div>
       <script>if(typeof loadMdlSummary==='function')loadMdlSummary()</script>
 
@@ -1075,19 +1230,23 @@ function renderRanking() {
 // Page: Crawl
 // ============================================================
 function renderCrawl() {
-  if (!window._selectedSources) window._selectedSources = { reddit: true, mdl: true }
+  if (!window._selectedSources) window._selectedSources = { reddit: true, mdl: true, gtrends: true }
   const sel = window._selectedSources
+  if (sel.gtrends === undefined) sel.gtrends = true
   const mdlForce = window._mdlForce || false
+  const gtrendsForce = window._gtrendsForce || false
 
-  // MDL 캐시 상태 hint
-  let mdlCacheHint = '<span style="color:#f59e0b">캐시 없음</span>'
-  if (state.mdlSummary) {
-    const ageMin = Math.round((Date.now() - new Date(state.mdlSummary.fetchedAt).getTime()) / 60000)
-    const expired = new Date(state.mdlSummary.expiresAt).getTime() < Date.now()
-    mdlCacheHint = expired
+  // 캐시 hint helper
+  const cacheHintFor = (summary, ttlLabel) => {
+    if (!summary) return '<span style="color:#f59e0b">캐시 없음</span>'
+    const ageMin = Math.round((Date.now() - new Date(summary.fetchedAt).getTime()) / 60000)
+    const expired = new Date(summary.expiresAt).getTime() < Date.now()
+    return expired
       ? `<span style="color:#f59e0b">캐시 만료 (${ageMin}분 전)</span>`
-      : `<span style="color:#10b981">캐시 ${ageMin}분 전 · 캐시 사용</span>`
+      : `<span style="color:#10b981">캐시 ${ageMin}분 전 · ${ttlLabel}</span>`
   }
+  const mdlCacheHint = cacheHintFor(state.mdlSummary, '캐시 사용')
+  const gtrendsCacheHint = cacheHintFor(state.gtrendsSummary, '캐시 사용')
 
   const sourceCard = (key, color, icon, name, desc, extra) => `
     <label class="card" style="padding:14px;border-color:${sel[key] ? color + '55' : 'rgba(255,255,255,0.06)'};cursor:pointer;opacity:${sel[key] ? '1' : '0.5'};transition:all 0.15s">
@@ -1108,13 +1267,20 @@ function renderCrawl() {
       캐시 무시하고 강제 새로고침
     </label>` : ''
 
-  const anySelected = sel.reddit || sel.mdl
+  const gtrendsExtra = sel.gtrends ? `
+    <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted);cursor:pointer">
+      <input type="checkbox" ${gtrendsForce ? 'checked' : ''} onchange="toggleGtrendsForce()"
+             style="width:13px;height:13px;cursor:pointer;accent-color:#22d3ee">
+      캐시 무시하고 강제 새로고침
+    </label>` : ''
+
+  const anySelected = sel.reddit || sel.mdl || sel.gtrends
 
   return `
     <div class="page-header">
       <div>
         <div class="page-title">🤖 크롤링 제어</div>
-        <div class="page-sub">Reddit + MyDramaList 통합 데이터 수집</div>
+        <div class="page-sub">Reddit + MyDramaList + Google Trends 통합 데이터 수집</div>
       </div>
     </div>
     <div style="padding:20px 28px;display:flex;flex-direction:column;gap:20px">
@@ -1125,7 +1291,7 @@ function renderCrawl() {
           <span style="font-size:11px;color:var(--text-muted)">소스 선택 후 실행</span>
         </div>
         <div class="card-body">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
             ${sourceCard(
               'reddit', '#ff6534', 'fab fa-reddit', 'Reddit',
               'r/kdramas, r/kdrama, r/kdramarecommends, r/korean · hot+new · 1주 이내',
@@ -1135,6 +1301,11 @@ function renderCrawl() {
               'mdl', '#a78bfa', 'fas fa-tv', 'MyDramaList',
               `top_airing K-드라마 5개 + 리뷰 10개씩 · ${mdlCacheHint}`,
               mdlExtra
+            )}
+            ${sourceCard(
+              'gtrends', '#22d3ee', 'fas fa-globe-americas', 'Google Trends',
+              `북미 일간 트렌드 RSS + K-콘텐츠 비교 · ${gtrendsCacheHint}`,
+              gtrendsExtra
             )}
           </div>
 
@@ -1382,11 +1553,14 @@ function renderNoReport() {
 function navigateTo(page) {
   state.page = page
   render()
-  if (page === 'crawl')    { setTimeout(loadLogs, 100); setTimeout(prefetchMdlCache, 100) }
+  if (page === 'crawl')    { setTimeout(loadLogs, 100); setTimeout(prefetchMdlCache, 100); setTimeout(prefetchGtrendsCache, 100) }
   if (page === 'history')  setTimeout(loadHistory, 100)
   if (page === 'schedule') setTimeout(loadSchedule, 100)
   if (page === 'reddit')   { window._redditSub = '전체'; renderPage() }
-  if (page === 'dashboard' && typeof loadMdlSummary === 'function') setTimeout(() => loadMdlSummary(false), 100)
+  if (page === 'dashboard' && typeof loadMdlSummary === 'function') {
+    setTimeout(() => loadMdlSummary(false), 100)
+    setTimeout(() => loadGTrendsSummary(false), 100)
+  }
 }
 
 async function prefetchMdlCache() {
@@ -1395,6 +1569,17 @@ async function prefetchMdlCache() {
     const r = await fetch('/api/mdl').then(x => x.json())
     if (r.ok && r.summary) {
       state.mdlSummary = r.summary
+      if (state.page === 'crawl') renderPage()
+    }
+  } catch {}
+}
+
+async function prefetchGtrendsCache() {
+  if (state.gtrendsSummary) return
+  try {
+    const r = await fetch('/api/gtrends').then(x => x.json())
+    if (r.ok && r.summary) {
+      state.gtrendsSummary = r.summary
       if (state.page === 'crawl') renderPage()
     }
   } catch {}
@@ -1424,13 +1609,18 @@ function updateSourceCard(id) {
 }
 
 function toggleSource(key) {
-  if (!window._selectedSources) window._selectedSources = { reddit: true, mdl: true }
+  if (!window._selectedSources) window._selectedSources = { reddit: true, mdl: true, gtrends: true }
   window._selectedSources[key] = !window._selectedSources[key]
   if (state.page === 'crawl') renderPage()
 }
 
 function toggleMdlForce() {
   window._mdlForce = !window._mdlForce
+  if (state.page === 'crawl') renderPage()
+}
+
+function toggleGtrendsForce() {
+  window._gtrendsForce = !window._gtrendsForce
   if (state.page === 'crawl') renderPage()
 }
 
@@ -1466,10 +1656,11 @@ async function runDemo(type = 'daily') {
 async function startCrawl() {
   if (state.crawling) return
   const type = window._crawlType || 'daily'
-  const sel = window._selectedSources || { reddit: true, mdl: true }
+  const sel = window._selectedSources || { reddit: true, mdl: true, gtrends: true }
   const mdlForce = !!window._mdlForce
+  const gtrendsForce = !!window._gtrendsForce
 
-  if (!sel.reddit && !sel.mdl) {
+  if (!sel.reddit && !sel.mdl && !sel.gtrends) {
     toast('최소 한 개 소스를 선택해주세요', 'error')
     return
   }
@@ -1495,6 +1686,7 @@ async function startCrawl() {
   const labels = []
   if (sel.reddit) labels.push('Reddit')
   if (sel.mdl) labels.push('MDL' + (mdlForce ? ' (강제)' : ''))
+  if (sel.gtrends) labels.push('GTrends' + (gtrendsForce ? ' (강제)' : ''))
   addLog(`크롤링 시작: ${labels.join(' + ')} (${type})`, 'info')
 
   // 두 소스를 병렬 처리
@@ -1545,6 +1737,35 @@ async function startCrawl() {
       } catch (e) {
         addLog(`[MDL] ❌ 연결 오류: ${e.message}`, 'error')
         return { source: 'mdl', ok: false, error: e.message }
+      }
+    })())
+  }
+
+  if (sel.gtrends) {
+    tasks.push((async () => {
+      addLog(`[GTrends] 시작${gtrendsForce ? ' (캐시 무시)' : ''}...`, 'info')
+      try {
+        const res = await fetch('/api/gtrends/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ force: gtrendsForce }),
+        }).then(x => x.json())
+        if (res.ok && res.summary) {
+          state.gtrendsSummary = res.summary
+          const total = res.summary.totalItems || 0
+          const k = res.summary.kItems?.length || 0
+          if (res.cached) {
+            addLog(`[GTrends] ✅ 캐시 사용 — 트렌드 ${total}개 (K ${k}개)`, 'success')
+          } else {
+            addLog(`[GTrends] ✅ 새 RSS 가져옴 — 트렌드 ${total}개 (K ${k}개)`, 'success')
+          }
+          return { source: 'gtrends', ok: true }
+        }
+        addLog(`[GTrends] ❌ ${res.error || '오류'}`, 'error')
+        return { source: 'gtrends', ok: false, error: res.error }
+      } catch (e) {
+        addLog(`[GTrends] ❌ 연결 오류: ${e.message}`, 'error')
+        return { source: 'gtrends', ok: false, error: e.message }
       }
     })())
   }
