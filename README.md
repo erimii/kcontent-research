@@ -12,8 +12,8 @@
 - **수집**:
   - Reddit Atom RSS (인증 불필요)
   - MyDramaList — Playwright 헤드리스 (Cloudflare 우회)
-  - Google Trends Daily RSS (인증 불필요)
-- **프론트**: Vanilla JS SPA (`public/static/app.js`)
+  - Google Trends — Playwright trending 페이지 스크래핑 (7개 카테고리·시간·geo URL 병합)
+- **프론트**: Vanilla JS SPA (`public/static/app.js`) — 더보기/접기 토글로 스크롤 길이 절반 단축
 
 ---
 
@@ -119,13 +119,19 @@ TOP5 포스트마다:
 
 **별도 파이프라인** ([src/crawlers/gtrends.ts](src/crawlers/gtrends.ts) + [src/pipeline/gtrendsAnalysis.ts](src/pipeline/gtrendsAnalysis.ts))
 
-- **수집**: `https://trends.google.com/trending/rss?geo=US` 데일리 RSS — 검색어/트래픽/뉴스 아이템 추출 (~1.5초)
-- **카테고리 자동 분류**: 스포츠 / 엔터테인먼트 / 기술 / 정치 / 금융 / K-콘텐츠 / 라이프스타일 / 시사 / 기타 (워드 바운더리 정규식 매칭)
+- **수집**: Playwright 헤드리스로 `https://trends.google.com/trending` 페이지 7개 병합:
+  - US daily / US 7-day / US category 3·4·18·20 / CA daily
+  - 페이지당 ~25개 노출 → dedup 후 **유니크 ~100~150개** 확보 (~17초, 1h 캐시)
+  - 셀 단위 추출(td 1~4)로 title·traffic·growth·time·related queries 정확 파싱
+- **카테고리 자동 분류**: 스포츠 / 엔터테인먼트 / 기술 / 정치 / 금융 / K-콘텐츠 / 라이프스타일 / 시사 / 기타
+  - 250+ 키워드 (NBA/NFL/MLB/NHL 팀명, 미국 정치인, 음식 체인, 서구 연예인, 영화·시리즈 제목 등)
+  - "X vs Y" 패턴 → 자동 sports
+  - 워드 바운더리 정규식으로 substring 오매칭 차단
 - **K-콘텐츠 필터**: 60+ 키워드 (kdrama/kpop/BTS/Squid Game/배우 이름 등)
 - **3단계 인사이트** (사용자 명세 그대로):
-  - ① 북미 거시 트렌드 — TOP 10 + 카테고리 분포 + 한 줄 요약
+  - ① 북미 거시 트렌드 — TOP 검색어 + 카테고리 분포 + 한 줄 요약 (TOP 10 카테고리 분포 기준 dominant 산정)
   - ② K-콘텐츠 트렌드 — 매칭된 K 항목 + 매칭 키워드 + 자연어 해석
-  - ③ 비교 인사이트 — K 비율(%)에 따라 4단계 자연어 분기 (주류/부분 진입/소수/부재)
+  - ③ 비교 인사이트 — K 비율에 따라 4단계 자연어 분기 (주류/부분 진입/소수/부재)
 - **캐시**: `mdl_cache` 테이블 (key `us_daily_v1`), TTL **1시간**
 
 ---
@@ -163,6 +169,10 @@ TOP5 포스트마다:
 8. **🔥 Reddit 토론 TOP 5** — 댓글 합계 기준 가장 활발한 콘텐츠 클러스터
 9. **🔬 TOP5 딥 분석** — 인기 포스트별 인기 사유 / 감정 / 쟁점 클러스터 / 대표 댓글
 10. **💡 자동 인사이트** — 영문 보조 인사이트 (legacy)
+
+### 더보기/접기 토글
+
+각 섹션은 **상단 일부만** 초기 노출(2~5개)하고 "더보기 (+N) ▼" 버튼으로 나머지 확장. 다시 누르면 "접기 ▲". 스크롤 길이 약 50% 단축. 적용 섹션: 한국어 핵심 인사이트 / GTrends 거시 트렌드 / Reddit 토론 TOP / MDL 드라마 / TOP5 딥 분석 / 자동 인사이트.
 
 ### Reddit 포스트 페이지
 

@@ -139,6 +139,40 @@ function escHtml(str) {
 }
 
 // ============================================================
+// 접기/펼치기 헬퍼 — 상단 N개만 노출, "더보기" 토글로 전체 표시
+// ============================================================
+function collapsibleSection(id, items, initialCount, renderFn) {
+  if (!items || items.length === 0) return ''
+  const safeId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_')
+  const visible = items.slice(0, initialCount).map(renderFn).join('')
+  const hidden = items.slice(initialCount)
+  if (hidden.length === 0) return visible
+  return `
+    <div data-collapse-id="${safeId}">
+      ${visible}
+      <div data-collapse-extra style="display:none">
+        ${hidden.map(renderFn).join('')}
+      </div>
+      <button onclick="toggleCollapse('${safeId}', this)" data-collapse-label="더보기 (+${hidden.length}) ▼"
+        style="display:block;width:100%;margin-top:8px;padding:7px 10px;background:rgba(255,255,255,0.03);border:1px dashed rgba(255,255,255,0.12);border-radius:6px;font-size:11px;color:var(--text-muted);cursor:pointer;transition:background 0.15s,color 0.15s"
+        onmouseover="this.style.background='rgba(255,255,255,0.06)';this.style.color='var(--text-primary)'"
+        onmouseout="this.style.background='rgba(255,255,255,0.03)';this.style.color='var(--text-muted)'">
+        더보기 (+${hidden.length}) ▼
+      </button>
+    </div>`
+}
+
+function toggleCollapse(id, btn) {
+  const root = document.querySelector(`[data-collapse-id="${id}"]`)
+  if (!root) return
+  const extra = root.querySelector('[data-collapse-extra]')
+  if (!extra) return
+  const isHidden = extra.style.display === 'none'
+  extra.style.display = isHidden ? '' : 'none'
+  if (btn) btn.innerHTML = isHidden ? '접기 ▲' : (btn.dataset.collapseLabel || '더보기 ▼')
+}
+
+// ============================================================
 // 6단계 파이프라인 결과 카드 — 한국어 인사이트 / 트렌드 / 서브레딧
 // ============================================================
 
@@ -175,10 +209,10 @@ function renderKoreanInsights(r) {
         ${filterChip}
       </div>
       <div class="card-body" style="display:flex;flex-direction:column;gap:10px">
-        ${list.map(ins => {
+        ${collapsibleSection('kr-insights', list, 3, ins => {
           const meta = KR_INSIGHT_META[ins.category] || { icon: '✨', label: '인사이트', color: '#888' }
           return `
-            <div style="display:flex;gap:12px;padding:12px 14px;background:rgba(255,255,255,0.02);border-radius:8px;border-left:3px solid ${meta.color}">
+            <div style="display:flex;gap:12px;padding:12px 14px;background:rgba(255,255,255,0.02);border-radius:8px;border-left:3px solid ${meta.color};margin-bottom:10px">
               <div style="font-size:20px;line-height:1.4">${meta.icon}</div>
               <div style="flex:1;min-width:0">
                 <div style="font-size:11px;color:${meta.color};text-transform:uppercase;font-weight:700;margin-bottom:4px">${meta.label}</div>
@@ -189,7 +223,7 @@ function renderKoreanInsights(r) {
                   </div>` : ''}
               </div>
             </div>`
-        }).join('')}
+        })}
       </div>
     </div>`
 }
@@ -373,15 +407,15 @@ function renderGTrendsCard(s) {
           </div>
 
           <!-- TOP 검색어 목록 -->
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
-            ${s.topItems.slice(0, 10).map((it, i) => `
-              <div style="display:flex;align-items:center;gap:8px;padding:5px 9px;background:rgba(255,255,255,0.02);border-radius:4px;border-left:2px solid ${GT_CAT_COLOR[it.category] || '#9ca3af'}">
+          <div>
+            ${collapsibleSection('gt-top', s.topItems.map((it, i) => ({ it, i })), 5, ({ it, i }) => `
+              <div style="display:flex;align-items:center;gap:8px;padding:5px 9px;background:rgba(255,255,255,0.02);border-radius:4px;border-left:2px solid ${GT_CAT_COLOR[it.category] || '#9ca3af'};margin-bottom:4px">
                 <span style="font-size:10px;color:var(--text-muted);min-width:14px">${i+1}</span>
                 <div style="flex:1;min-width:0;font-size:11.5px;line-height:1.4">
                   <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(it.title)}${it.isKContent ? ' <span style="color:#ef4444;font-size:10px">🇰🇷</span>' : ''}</div>
                 </div>
                 <span style="font-size:10px;color:${GT_CAT_COLOR[it.category] || '#9ca3af'};white-space:nowrap">${escHtml(it.traffic)}</span>
-              </div>`).join('')}
+              </div>`)}
           </div>
         </div>
 
@@ -505,7 +539,7 @@ function renderMdlCard(s) {
           ${s.aggregate.topCriticizedTopic ? ` · 가장 많이 비판받는 주제 <strong style="color:#ef4444">${escHtml(s.aggregate.topCriticizedTopic)}</strong>` : ''}
         </div>
         <!-- 드라마 목록 -->
-        ${s.dramas.map((d, i) => renderMdlDrama(d, i)).join('')}
+        ${collapsibleSection('mdl-dramas', s.dramas.map((d, i) => ({ d, i })), 2, ({ d, i }) => renderMdlDrama(d, i))}
       </div>
     </div>`
 }
@@ -763,8 +797,8 @@ function renderDeepAnalysis(r) {
         <div class="card-title"><i class="fas fa-microscope" style="color:#8b5cf6"></i> TOP5 딥 분석</div>
         <span style="font-size:11px;color:var(--text-muted)">감정·의견 유형·반응 원인</span>
       </div>
-      <div class="card-body" style="padding:0">
-        ${list.map((d, i) => {
+      <div class="card-body" style="padding:0 12px 8px">
+        ${collapsibleSection('deep-analysis', list.map((d, i) => ({ d, i })), 2, ({ d, i }) => {
           const total = d.sentiment.positive + d.sentiment.negative || 1
           const pos = (d.sentiment.positiveRatio * 100).toFixed(0)
           const neg = (d.sentiment.negativeRatio * 100).toFixed(0)
@@ -827,7 +861,7 @@ function renderDeepAnalysis(r) {
                     </div>`).join('')}
                 </div>` : ''}
             </div>`
-        }).join('')}
+        })}
       </div>
     </div>`
 }
@@ -961,7 +995,7 @@ function renderDashboard() {
           <div class="card-body" style="padding:4px 14px">
             ${redditBuzz.length === 0
               ? '<div class="plat-empty">Reddit 데이터 없음</div>'
-              : redditBuzz.map((c, i) => {
+              : collapsibleSection('reddit-buzz', redditBuzz.map((c, i) => ({ c, i })), 3, ({ c, i }) => {
                   const rItems = c.rawItems?.filter(ri => ri.source === 'reddit') || []
                   const totalComments = rItems.reduce((s, ri) => s + ri.commentCount, 0)
                   const totalScore    = rItems.reduce((s, ri) => s + (ri.score || 0), 0)
@@ -986,7 +1020,7 @@ function renderDashboard() {
                         💬 ${totalComments}
                       </div>
                     </div>`
-                }).join('')}
+                })}
           </div>
         </div>
 
@@ -1001,7 +1035,7 @@ function renderDashboard() {
           <span style="font-size:11px;color:var(--text-muted)">${r.insights?.length || 0}개 생성됨</span>
         </div>
         <div class="card-body">
-          ${(r.insights || []).map(ins => `
+          ${collapsibleSection('auto-insights', (r.insights || []), 3, ins => `
             <div class="insight-item ${ins.category}">
               <div class="insight-icon">${insightIcon(ins.category)}</div>
               <div style="flex:1">
@@ -1010,7 +1044,7 @@ function renderDashboard() {
                   ${(ins.evidence || []).map(e => `<span class="insight-chip">${escHtml(e)}</span>`).join('')}
                 </div>
               </div>
-            </div>`).join('')}
+            </div>`)}
         </div>
       </div>
 

@@ -45,22 +45,65 @@ const K_KEYWORDS: { kw: string; isMulti?: boolean }[] = [
   { kw: 'korean' }, { kw: 'korea' },
 ]
 
-// ── 카테고리별 키워드 (lowercase, word-boundary) ────────────
+// ── 카테고리별 키워드 (lowercase, word-boundary 매칭) ────────
+// 미국 트렌드 빈출 키워드 위주로 보강
 const CATEGORY_KEYWORDS: { cat: TrendCategory; keywords: string[] }[] = [
   { cat: 'sports', keywords: [
-    'nba', 'nfl', 'mlb', 'nhl', 'super bowl', 'world cup', 'olympics', 'championship',
-    'lakers', 'celtics', 'warriors', 'cowboys', 'patriots', 'yankees', 'dodgers',
-    'soccer', 'football', 'basketball', 'baseball', 'hockey', 'tennis', 'golf', 'ufc', 'boxing',
-    'lebron', 'curry', 'mahomes', 'messi', 'ronaldo', 'tiger woods',
-    'playoffs', 'finals', 'draft', 'season', 'coach', 'quarterback',
+    // 리그/대회
+    'nba', 'nfl', 'mlb', 'nhl', 'mls', 'ncaa', 'cfl', 'ufc', 'wwe',
+    'super bowl', 'world cup', 'olympics', 'championship', 'world series',
+    'playoffs', 'finals', 'draft', 'tournament', 'derby',
+    'soccer', 'football', 'basketball', 'baseball', 'hockey', 'tennis', 'golf', 'boxing',
+    // 일반 용어
+    'coach', 'quarterback', 'pitcher', 'striker', 'goalie',
+    // NFL 팀
+    'cowboys', 'patriots', 'eagles', 'chiefs', 'ravens', 'broncos', 'saints', 'raiders',
+    'rams', 'niners', '49ers', 'packers', 'vikings', 'cardinals', 'seahawks', 'browns',
+    'steelers', 'panthers', 'falcons', 'jaguars', 'buccaneers', 'chargers', 'dolphins',
+    'jets', 'titans', 'colts', 'lions', 'bears', 'bills', 'bengals',
+    // NBA
+    'lakers', 'celtics', 'warriors', 'bulls', 'mavericks', 'mavs', 'suns', 'rockets',
+    'jazz', 'nuggets', 'blazers', 'kings', 'hornets', 'hawks', 'magic', 'heat', 'raptors',
+    'sixers', 'thunder', 'timberwolves', 'pelicans', 'grizzlies',
+    // MLB
+    'yankees', 'dodgers', 'phillies', 'braves', 'tigers', 'red sox', 'cubs', 'white sox',
+    'marlins', 'rays', 'orioles', 'blue jays', 'mariners', 'athletics', 'twins', 'royals',
+    'guardians', 'padres', 'rockies', 'dbacks', 'diamondbacks', 'nationals', 'brewers',
+    'reds', 'pirates', 'astros', 'angels', 'mets',
+    // NHL
+    'oilers', 'bruins', 'blackhawks', 'sabres', 'flyers', 'capitals', 'penguins',
+    'hurricanes', 'red wings', 'sharks', 'golden knights', 'ducks', 'stars', 'predators',
+    'blues', 'lightning', 'maple leafs', 'canadiens', 'avalanche', 'flames', 'canucks',
+    'senators', 'coyotes',
+    // MLS
+    'nashville sc', 'atlanta united', 'lafc', 'sounders', 'timbers', 'red bulls',
+    // 해외 축구 빈출
+    'manchester united', 'manchester city', 'liverpool', 'chelsea', 'arsenal', 'tottenham',
+    'real madrid', 'barcelona', 'bayern', 'psg', 'juventus', 'milan', 'inter milan',
+    'dortmund', 'atletico', 'tigres',
+    // 선수
+    'lebron', 'curry', 'mahomes', 'messi', 'ronaldo', 'tiger woods', 'kobe', 'jordan',
+    'klay thompson', 'durant', 'giannis', 'embiid', 'jokic',
   ]},
   { cat: 'entertainment', keywords: [
-    'movie', 'film', 'trailer', 'sequel', 'prequel', 'oscars', 'emmys', 'grammys', 'golden globes',
-    'netflix', 'disney+', 'hbo', 'apple tv', 'hulu', 'prime video', 'paramount',
-    'series', 'season finale', 'tv show', 'reality show', 'documentary',
-    'taylor swift', 'beyonce', 'rihanna', 'drake', 'kanye', 'kardashian', 'kendall',
-    'marvel', 'dc comics', 'star wars', 'avengers', 'spider-man', 'batman',
+    'movie', 'film', 'trailer', 'sequel', 'prequel', 'reboot',
+    'oscars', 'emmys', 'grammys', 'golden globes', 'tony awards', 'sag awards',
+    'netflix', 'disney+', 'disney plus', 'hbo', 'apple tv', 'hulu', 'prime video',
+    'paramount', 'peacock', 'max',
+    'series', 'season finale', 'tv show', 'reality show', 'documentary', 'episode',
     'concert', 'tour', 'album', 'single', 'song',
+    // 인기 연예인
+    'taylor swift', 'beyonce', 'rihanna', 'drake', 'kanye', 'kardashian', 'kendall',
+    'jenner', 'ariana grande', 'michael jackson', 'madonna', 'lady gaga',
+    'jimmy kimmel', 'jimmy fallon', 'colbert', 'oprah',
+    // 프랜차이즈
+    'marvel', 'dc comics', 'dc studios', 'star wars', 'avengers', 'spider-man',
+    'batman', 'superman', 'wolverine', 'deadpool', 'x-men',
+    // 인기 시리즈/영화
+    'ted lasso', 'the boys', 'daredevil', 'severance', 'succession', 'white lotus',
+    'only murders', 'last of us', 'wednesday', 'stranger things', 'euphoria',
+    'queens gambit', 'wicked', 'dune', 'gladiator', 'oppenheimer', 'barbie',
+    'inside out', 'spongebob', 'simpsons', 'family guy',
   ]},
   { cat: 'tech', keywords: [
     'apple', 'google', 'microsoft', 'meta', 'amazon', 'tesla', 'spacex', 'openai', 'anthropic',
@@ -68,14 +111,25 @@ const CATEGORY_KEYWORDS: { cat: TrendCategory; keywords: string[] }[] = [
     'ai', 'chatgpt', 'gpt', 'claude', 'gemini', 'llm', 'machine learning',
     'crypto', 'bitcoin', 'ethereum', 'nft', 'blockchain',
     'startup', 'ipo', 'vc', 'silicon valley', 'tech',
+    // 추가
+    'doodle', 'gmail', 'youtube', 'instagram', 'tiktok', 'twitter', 'x.com',
+    'whatsapp', 'snapchat', 'reddit', 'discord', 'twitch',
+    'vision pro', 'airpods', 'oculus', 'meta quest', 'kindle', 'roku',
+    'playstation', 'ps plus', 'xbox', 'nintendo', 'switch', 'steam deck',
   ]},
   { cat: 'politics', keywords: [
-    'president', 'biden', 'trump', 'harris', 'obama', 'desantis', 'pence',
+    'president', 'vice president',
+    'biden', 'trump', 'harris', 'obama', 'desantis', 'pence', 'kamala',
+    'comey', 'hegseth', 'schumer', 'mcconnell', 'newsom', 'pelosi', 'mccarthy',
+    'rubio', 'cruz', 'sanders', 'aoc', 'gaetz', 'gingrich', 'romney',
+    'king charles', 'queen camilla', 'prince william', 'prince harry', 'meghan',
+    'putin', 'zelensky', 'netanyahu', 'xi jinping',
     'election', 'senate', 'congress', 'supreme court', 'governor', 'mayor',
     'republican', 'democrat', 'gop', 'dnc', 'rnc',
-    'debate', 'campaign', 'primary', 'caucus', 'voting',
-    'white house', 'pentagon', 'cia', 'fbi',
+    'debate', 'campaign', 'primary', 'caucus', 'voting', 'voter',
+    'white house', 'pentagon', 'cia', 'fbi', 'state of the union',
     'ukraine', 'russia', 'israel', 'gaza', 'iran',
+    'executive order', 'impeachment', 'tariff',
   ]},
   { cat: 'finance', keywords: [
     'stock', 'stocks', 'nasdaq', 's&p', 'dow', 'wall street',
@@ -83,18 +137,35 @@ const CATEGORY_KEYWORDS: { cat: TrendCategory; keywords: string[] }[] = [
     'mortgage', 'housing market', 'real estate',
     'earnings', 'revenue', 'profit', 'dividend', 'ipo',
     'cpi', 'jobs report',
+    'opec', 'saudi aramco', 'oil price', 'gas price', 'gold', 'silver',
+    'crude', 'brent',
   ]},
   { cat: 'lifestyle', keywords: [
     'recipe', 'restaurant', 'food', 'diet', 'fitness', 'workout', 'yoga',
     'travel', 'vacation', 'tourism', 'flight',
     'fashion', 'beauty', 'skincare', 'wedding',
+    // 음식 체인
+    'costco', 'mcdonald', 'starbucks', 'chipotle', 'taco bell', 'wendy', 'smokey bones',
+    'panera', 'carls jr', 'kfc', 'burger king', 'chick-fil-a', 'popeyes', 'dominos',
+    'pizza hut', 'dairy queen', 'in-n-out', 'five guys', 'ihop', 'dennys', 'applebees',
+    'olive garden', 'red lobster', 'outback', 'longhorn',
+    'hot dog', 'burger', 'pizza', 'taco', 'french broad',
   ]},
   { cat: 'news', keywords: [
     'breaking', 'shooting', 'crash', 'fire', 'storm', 'hurricane', 'earthquake', 'flood',
-    'death', 'killed', 'arrested', 'investigation', 'lawsuit', 'verdict',
+    'tornado', 'snowstorm', 'blizzard', 'wildfire',
+    'death', 'killed', 'arrested', 'investigation', 'lawsuit', 'verdict', 'arrest',
     'climate', 'protest', 'rally',
+    'weather', 'forecast', 'temperature',
+    'immigration', 'border', 'asylum', 'fentanyl', 'opioid',
+    'recall', 'scandal', 'mass shooting',
   ]},
 ]
+
+// "X vs Y" 패턴 (스포츠 매치) — 별도 휴리스틱
+function isVsMatch(title: string): boolean {
+  return /\b\w+\s+vs\.?\s+\w+/i.test(title)
+}
 
 // 워드 바운더리 매칭
 function matchKeyword(text: string, keyword: string): boolean {
@@ -119,17 +190,32 @@ function categorize(item: { title: string; newsItems: { title: string; source: s
       if (matchKeyword(haystack, kw)) return group.cat
     }
   }
+  // "X vs Y" 패턴은 스포츠 매치일 확률 높음
+  if (isVsMatch(item.title)) return 'sports'
   return 'other'
 }
 
 // ── 자연어 인사이트 생성 ─────────────────────────────────────
-function buildOneLineSummary(items: GTrendsItem[], stats: GTrendsCategoryStat[]): string {
+// TOP-N 항목들에서 카테고리별 카운트
+function topCategoryCounts(items: GTrendsItem[], topN: number): Map<TrendCategory, number> {
+  const m = new Map<TrendCategory, number>()
+  for (const it of items.slice(0, topN)) {
+    m.set(it.category, (m.get(it.category) ?? 0) + 1)
+  }
+  return m
+}
+
+function buildOneLineSummary(items: GTrendsItem[], _stats: GTrendsCategoryStat[]): string {
   if (items.length === 0) return '북미 트렌드 데이터 없음.'
   const top = items[0]
-  // 의미 있는 dominant: 'other' 제외, count >= 2 우선
-  const meaningful = stats.filter((s) => s.category !== 'other')
-  const dominant = meaningful.find((s) => s.count >= 2) || meaningful[0]
-  const dominantLabel = dominant ? CATEGORY_LABEL[dominant.category] : null
+
+  // dominant: TOP 10 안에서 'other' 제외 가장 많은 카테고리. share >= 30% (top 10 중 3건+)일 때만 "주도"라고 표현
+  const top10Counts = topCategoryCounts(items, 10)
+  const meaningful = [...top10Counts.entries()]
+    .filter(([cat]) => cat !== 'other')
+    .sort((a, b) => b[1] - a[1])
+  const dominant = meaningful[0]
+  const dominantShare = dominant ? dominant[1] / Math.min(items.length, 10) : 0
 
   // 상위 2개 항목 + 카테고리 라벨 (emoji 제거)
   const stripEmoji = (s: string) => s.replace(/^[^\p{L}]+/u, '').trim()
@@ -138,8 +224,9 @@ function buildOneLineSummary(items: GTrendsItem[], stats: GTrendsCategoryStat[])
     return lbl ? `'${i.title}' (${lbl})` : `'${i.title}'`
   }).join(', ')
 
-  if (dominantLabel && dominant!.count >= 2) {
-    return `현재 북미에서는 ${topPairs}을 비롯해 ${dominantLabel} 영역이 주도하고 있으며, 최상위 키워드 '${top.title}'(트래픽 ${top.traffic})가 가장 큰 관심을 받고 있습니다.`
+  if (dominant && dominantShare >= 0.3) {
+    const dominantLabel = CATEGORY_LABEL[dominant[0]]
+    return `현재 북미에서는 ${topPairs}을 비롯해 ${dominantLabel} 영역이 주도하고 있으며 (TOP 10 중 ${dominant[1]}건), 최상위 키워드 '${top.title}'(트래픽 ${top.traffic})가 가장 큰 관심을 받고 있습니다.`
   }
   return `현재 북미에서는 ${topPairs} 등 다양한 분야의 화제가 분산되어 있으며, 최상위 키워드 '${top.title}'(트래픽 ${top.traffic})가 가장 큰 관심을 받고 있습니다.`
 }
@@ -161,9 +248,15 @@ function buildComparison(kItems: GTrendsItem[], allItems: GTrendsItem[], stats: 
   const total = allItems.length
   if (total === 0) return '비교할 트렌드 데이터가 없습니다.'
 
-  // 'other' 와 'kcontent' 제외, count >= 2 우선; 없으면 첫 의미 카테고리
-  const meaningful = stats.filter((s) => s.category !== 'kcontent' && s.category !== 'other' && s.count > 0)
-  const dominantCat = meaningful.find((s) => s.count >= 2) || meaningful[0]
+  // TOP 10 기준 dominant (other·kcontent 제외)
+  const top10Counts = topCategoryCounts(allItems, 10)
+  const meaningfulTop = [...top10Counts.entries()]
+    .filter(([cat]) => cat !== 'kcontent' && cat !== 'other')
+    .sort((a, b) => b[1] - a[1])
+  const dominantCat = meaningfulTop[0]
+    ? { category: meaningfulTop[0][0], count: meaningfulTop[0][1], label: CATEGORY_LABEL[meaningfulTop[0][0]] }
+    : null
+  void stats // 전체 stats 더 이상 dominant 산정에 사용 안 함
   const kStat = stats.find((s) => s.category === 'kcontent')
   const kCount = kStat?.count ?? 0
   const kRatio = (kCount / total) * 100
@@ -216,7 +309,7 @@ export async function buildGTrendsSummary(geo: string = 'US'): Promise<GTrendsSu
   const categoryStats = [...catMap.values()].sort((a, b) => b.count - a.count)
 
   const kItems = items.filter((i) => i.isKContent)
-  const topItems = items.slice(0, 20) // 상위 20개
+  const topItems = items.slice(0, 100) // 상위 100개 (RSS 병합 후 가능한 만큼)
 
   const oneLineSummary = buildOneLineSummary(topItems, categoryStats)
   const kInsight = buildKInsight(kItems, items.length)
