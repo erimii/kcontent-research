@@ -9,10 +9,13 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import {
   db, initDb, saveReport, saveCrawlLog,
-  getLatestReport, getReportList, getReportById, getCrawlLogs, searchSnapshots
+  getLatestReport, getReportList, getReportById, getCrawlLogs, searchSnapshots,
+  getMdlCache, setMdlCache,
 } from './db.js'
 import { runPipeline } from './pipeline/index.js'
 import { demoRedditPosts } from './demo-data.js'
+import { analyzeMdlDramas } from './pipeline/mdlAnalysis.js'
+import type { MdlSummary } from './types/index.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -175,164 +178,200 @@ app.get('/api/search', (req, res) => {
 })
 
 // ============================================================
-// 뉴스레터 HTML 내보내기
+// 뉴스레터 HTML — 대시보드 6단계 결과를 이메일 친화 레이아웃으로 압축
 // ============================================================
+const KR_INSIGHT_META: Record<string, { icon: string; label: string; color: string }> = {
+  trend_summary:       { icon: '📈', label: '트렌드 요약',      color: '#3b82f6' },
+  fan_reaction:        { icon: '💬', label: '팬 반응 특징',     color: '#f59e0b' },
+  consumption_pattern: { icon: '🎬', label: '콘텐츠 소비 패턴',  color: '#8b5cf6' },
+  expansion:           { icon: '🌏', label: '확장 흐름',         color: '#10b981' },
+  subreddit:           { icon: '👥', label: '커뮤니티 특성',     color: '#ec4899' },
+}
+const BEHAVIOR_KO: Record<string, string> = {
+  recommendation: '추천 요청', review: '리뷰/후기', question: '질문', discussion: '의견/토론',
+}
+const escNl = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+const pctNl = (n: number) => `${Math.round((n || 0) * 100)}%`
+
 app.get('/api/newsletter/:id', (req, res) => {
   try {
     const row = getReportById(req.params.id)
     if (!row) return void res.status(404).send('<h1>리포트를 찾을 수 없습니다</h1>')
     const report = { ...row, data: JSON.parse(row.data) } as any
     const r = report.data
-    const topK = (r.topContents || []).filter((c: any) => c.isKContent)
     const now = new Date(r.generatedAt).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })
+    const koreanInsights = (r.koreanInsights || []) as { category: string; text: string; evidence?: string[] }[]
+    const headline = koreanInsights[0]?.text || `${r.topContents?.length || 0}개 콘텐츠 분석 리포트`
+    const trends = r.trends
+    const sent = trends?.sentiment
+    const beh = trends?.behavior
+    const dominantBeh = beh ? Object.entries(beh.ratios as Record<string, number>).sort((a, b) => b[1] - a[1])[0] : null
+
+    // Reddit 토론 TOP 3 (deepAnalysis 우선)
+    const deep = (r.deepAnalysis || []) as any[]
+    const top3Posts = deep.slice(0, 3)
+
+    // MDL 캐시
+    const mdlCache = getMdlCache<MdlSummary>('top_airing_v1')
+    const mdl = mdlCache?.data
+    const top3Dramas = (mdl?.dramas || []).slice(0, 3)
+
+    // 서브레딧 mini
+    const subInsights = (r.subredditInsights || []) as any[]
+
+    const insightCard = (ins: { category: string; text: string; evidence?: string[] }) => {
+      const meta = KR_INSIGHT_META[ins.category] || { icon: '✨', label: '인사이트', color: '#888' }
+      return `
+      <tr><td style="padding:0 0 10px">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-left:3px solid ${meta.color};background:#f7f8fc;border-radius:6px">
+          <tr><td style="padding:12px 14px">
+            <div style="font-size:11px;color:${meta.color};font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">${meta.icon} ${meta.label}</div>
+            <div style="font-size:13px;line-height:1.6;color:#1a1a2e">${escNl(ins.text)}</div>
+            ${ins.evidence && ins.evidence.length ? `
+              <div style="margin-top:6px">
+                ${ins.evidence.slice(0, 3).map((e) => `<span style="display:inline-block;font-size:10px;background:rgba(0,0,0,0.04);padding:2px 6px;border-radius:4px;color:#5d6680;margin-right:3px;margin-bottom:2px">${escNl(e)}</span>`).join('')}
+              </div>` : ''}
+          </td></tr>
+        </table>
+      </td></tr>`
+    }
+
+    const postCard = (d: any, i: number) => {
+      const debate = (d.commentDebates || [])[0]
+      const debateColor = debate
+        ? (debate.opinionDirection === 'mixed' ? '#f59e0b' : debate.opinionDirection === 'positive' ? '#10b981' : debate.opinionDirection === 'negative' ? '#ef4444' : '#6b7280')
+        : '#8b5cf6'
+      return `
+      <tr><td style="padding:0 0 12px">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border:1px solid #e8eaf2;border-radius:8px;background:#fff">
+          <tr><td style="padding:14px 16px">
+            <div style="font-size:12px;color:#8b5cf6;font-weight:700;margin-bottom:4px">#${i + 1} · r/${escNl(d.subreddit)} · 💬 ${d.commentCount}</div>
+            <a href="${escNl(d.url)}" style="font-size:14px;font-weight:700;color:#1a1a2e;text-decoration:none;line-height:1.4;display:block;margin-bottom:8px">${escNl(d.title)}</a>
+            <div style="font-size:12px;color:#3a4163;line-height:1.55;margin-bottom:8px">${escNl(d.popularityReason)}</div>
+            ${debate ? `
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f7f8fc;border-left:3px solid ${debateColor};border-radius:4px">
+                <tr><td style="padding:8px 12px">
+                  <div style="font-size:11px;color:${debateColor};font-weight:700;margin-bottom:3px">🗣️ 핵심 쟁점 — ${escNl(debate.topic)}</div>
+                  <div style="font-size:11px;color:#5d6680;line-height:1.5">${escNl(debate.description)} <span style="color:${debateColor}">(${escNl(debate.opinionDistribution.mixedLabel)})</span></div>
+                  <div style="font-size:11px;color:#3a4163;line-height:1.5;margin-top:3px"><strong>해석:</strong> ${escNl(debate.interpretation)}</div>
+                </td></tr>
+              </table>` : ''}
+          </td></tr>
+        </table>
+      </td></tr>`
+    }
+
+    const dramaCard = (a: any, i: number) => {
+      const d = a.drama
+      const sent = a.reviewSentiment
+      const total = (sent.positive + sent.negative) || 1
+      const posPct = Math.round((sent.positiveRatio || 0) * 100)
+      return `
+      <tr><td style="padding:0 0 12px">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border:1px solid #e8eaf2;border-radius:8px;background:#fff">
+          <tr>
+            ${d.posterUrl ? `<td valign="top" style="padding:14px 0 14px 14px;width:80px"><img src="${escNl(d.posterUrl)}" alt="${escNl(d.title)}" width="68" style="border-radius:4px;display:block;width:68px;height:auto"></td>` : ''}
+            <td style="padding:14px 16px;vertical-align:top">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+                <a href="${escNl(d.url)}" style="font-size:14px;font-weight:700;color:#1a1a2e;text-decoration:none">#${i + 1} ${escNl(d.title)}</a>
+                <span style="font-size:13px;color:#a78bfa;font-weight:700;white-space:nowrap;margin-left:10px">⭐ ${d.rating.toFixed(1)}</span>
+              </div>
+              <div style="font-size:11px;color:#9ba3bf;margin-bottom:6px">
+                ${d.year ? d.year + ' · ' : ''}${d.episodes ? d.episodes + '부작 · ' : ''}리뷰 ${d.reviewCount}개${total > 1 ? ` · 댓글 긍정 ${posPct}%` : ''}
+              </div>
+              <div style="font-size:12px;color:#3a4163;line-height:1.55">${escNl(a.popularityReason)}</div>
+            </td>
+          </tr>
+        </table>
+      </td></tr>`
+    }
+
+    const sentLine = sent
+      ? `긍정 <strong style="color:#10b981">${pctNl(sent.positiveRatio)}</strong> · 중립 <strong>${pctNl(sent.neutralRatio)}</strong> · 부정 <strong style="color:#ef4444">${pctNl(sent.negativeRatio)}</strong>`
+      : ''
+    const behLine = beh && dominantBeh
+      ? `행동: <strong>${BEHAVIOR_KO[dominantBeh[0]] || dominantBeh[0]}</strong> ${pctNl(dominantBeh[1])} 우세`
+      : ''
 
     const html = `<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>K-Content Weekly Intelligence · ${now}</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: #f4f5f7; color: #1a1a2e; }
-  .wrapper { max-width: 680px; margin: 32px auto; }
-  .header { background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 100%); color: #fff; padding: 36px 40px; border-radius: 16px 16px 0 0; }
-  .header-title { font-size: 26px; font-weight: 800; letter-spacing: -0.5px; }
-  .header-sub { font-size: 13px; color: #7986cb; margin-top: 6px; }
-  .header-meta { margin-top: 16px; display: flex; gap: 20px; }
-  .meta-chip { font-size: 11px; background: rgba(255,255,255,0.08); padding: 4px 10px; border-radius: 20px; color: #a0a8d0; }
-  .section { background: #fff; border-left: 1px solid #e0e4ef; border-right: 1px solid #e0e4ef; padding: 28px 36px; }
-  .section:last-of-type { border-radius: 0 0 16px 16px; border-bottom: 1px solid #e0e4ef; }
-  .section-title { font-size: 15px; font-weight: 700; color: #1a1a2e; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; padding-bottom: 10px; border-bottom: 2px solid #f0f2f8; }
-  .stat-row { display: flex; gap: 12px; margin-bottom: 24px; }
-  .stat-box { flex: 1; background: #f7f8fc; border-radius: 10px; padding: 16px; text-align: center; border: 1px solid #e8eaf2; }
-  .stat-num { font-size: 28px; font-weight: 800; line-height: 1; }
-  .stat-label { font-size: 11px; color: #7986cb; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
-  .rank-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid #f0f2f8; }
-  .rank-row:last-child { border-bottom: none; }
-  .rank-num { font-size: 13px; font-weight: 800; min-width: 24px; text-align: right; color: #9ba3bf; }
-  .rank-num.gold { color: #f1c40f; }
-  .rank-num.silver { color: #95a5a6; }
-  .rank-num.bronze { color: #cd6133; }
-  .rank-title { font-size: 13px; font-weight: 600; flex: 1; }
-  .rank-score { font-size: 12px; color: #4f8ef7; font-weight: 700; }
-  .badge { display: inline-block; padding: 2px 7px; border-radius: 20px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
-  .badge-k { background: #fce4f0; color: #c2185b; }
-  .badge-drama { background: #e3eeff; color: #1565c0; }
-  .badge-movie { background: #f3e5f5; color: #6a1b9a; }
-  .insight-item { display: flex; gap: 12px; padding: 10px 14px; background: #f7f8fc; border-radius: 8px; margin-bottom: 8px; border-left: 3px solid; }
-  .insight-dominant { border-color: #4f8ef7; }
-  .insight-rising { border-color: #2ecc71; }
-  .insight-newcomer { border-color: #f39c12; }
-  .insight-actor { border-color: #9b59b6; }
-  .insight-genre { border-color: #e91e8c; }
-  .insight-regional { border-color: #1abc9c; }
-  .insight-icon { font-size: 16px; }
-  .insight-text { font-size: 12px; line-height: 1.55; color: #2c3e50; }
-  .evidence { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
-  .evidence span { font-size: 10px; background: rgba(0,0,0,0.05); padding: 1px 5px; border-radius: 4px; color: #7986cb; }
-  .source-tag { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px; margin-right: 3px; }
-  .src-reddit { background: #fff0eb; color: #e64a19; }
-  .footer { text-align: center; padding: 20px; font-size: 11px; color: #9ba3bf; }
-</style>
+<title>K-Content Intelligence · ${now}</title>
 </head>
-<body>
-<div class="wrapper">
-  <div class="header">
-    <div class="header-title">🇰🇷 K-Content Intelligence</div>
-    <div class="header-sub">${r.reportType === 'weekly' ? '주간' : '일간'} Reddit K콘텐츠 트렌드 리포트</div>
-    <div class="header-meta">
-      <span class="meta-chip">📅 ${now}</span>
-      <span class="meta-chip">🎬 ${r.topContents?.length || 0} titles tracked</span>
-      <span class="meta-chip">🇰🇷 ${topK.length} K-titles</span>
-      <span class="meta-chip">📡 Reddit (kdramas, kdrama, kdramarecommends, korean, koreatravel)</span>
-    </div>
-  </div>
+<body style="margin:0;padding:0;background:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#1a1a2e">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f4f5f7;padding:32px 0">
+  <tr><td align="center">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="680" style="max-width:680px;width:100%">
 
-  <div class="section">
-    <div class="stat-row">
-      <div class="stat-box">
-        <div class="stat-num" style="color:#4f8ef7">${r.topContents?.length || 0}</div>
-        <div class="stat-label">총 콘텐츠</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-num" style="color:#e91e8c">${topK.length}</div>
-        <div class="stat-label">K-콘텐츠</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-num" style="color:#2ecc71">${r.insights?.length || 0}</div>
-        <div class="stat-label">인사이트</div>
-      </div>
-    </div>
-
-    <div class="section-title">🏆 전체 TOP 10</div>
-    ${(r.topContents || []).slice(0, 10).map((c: any, i: number) => `
-      <div class="rank-row">
-        <div class="rank-num ${i===0?'gold':i===1?'silver':i===2?'bronze':''}">${i+1}</div>
-        <div class="rank-title">
-          ${c.representativeTitle}
-          ${c.isKContent ? '<span class="badge badge-k">K</span>' : ''}
-          ${c.contentType === 'drama' ? '<span class="badge badge-drama">드라마</span>' : c.contentType === 'movie' ? '<span class="badge badge-movie">영화</span>' : ''}
+      <!-- Header -->
+      <tr><td style="background:linear-gradient(135deg,#0f0f1a 0%,#2a2a4e 100%);color:#fff;padding:32px 36px;border-radius:16px 16px 0 0">
+        <div style="font-size:22px;font-weight:800;letter-spacing:-0.3px">🇰🇷 K-Content Intelligence</div>
+        <div style="font-size:12px;color:#a0a8d0;margin-top:4px">${r.reportType === 'weekly' ? '주간' : '일간'} 글로벌 K-콘텐츠 팬덤 리포트 · ${now}</div>
+        <div style="margin-top:14px;padding:12px 14px;background:rgba(255,255,255,0.07);border-radius:8px;border-left:3px solid #ec4899">
+          <div style="font-size:10px;color:#ec4899;font-weight:700;text-transform:uppercase;margin-bottom:4px">이번 호 헤드라인</div>
+          <div style="font-size:13px;line-height:1.55;color:#e8eaf6">${escNl(headline)}</div>
         </div>
-        <div>
-          ${c.sources.map((s: string) => `<span class="source-tag src-${s}">${s}</span>`).join('')}
+      </td></tr>
+
+      <!-- 통계 한 줄 -->
+      <tr><td style="background:#fff;padding:18px 36px;border-left:1px solid #e0e4ef;border-right:1px solid #e0e4ef;border-bottom:1px solid #f0f2f8">
+        <div style="font-size:12px;color:#5d6680;line-height:1.6">
+          📊 <strong>${r.topContents?.length || 0}개 콘텐츠</strong> · 포스트 <strong>${r.filterStats?.after || 0}개</strong>
+          ${sentLine ? ` · ${sentLine}` : ''}
+          ${behLine ? ` · ${behLine}` : ''}
         </div>
-        <div class="rank-score">${Math.round(c.finalScore)}pts</div>
-      </div>`).join('')}
-  </div>
+      </td></tr>
 
-  <div class="section">
-    <div class="section-title">🇰🇷 K-콘텐츠 TOP 10</div>
-    ${topK.length === 0 ? '<p style="color:#9ba3bf;font-size:13px">이 기간 K-콘텐츠 없음</p>' :
-      topK.slice(0, 10).map((c: any, i: number) => `
-        <div class="rank-row">
-          <div class="rank-num ${i===0?'gold':i===1?'silver':i===2?'bronze':''}">${i+1}</div>
-          <div class="rank-title">${c.representativeTitle}</div>
-          <div class="rank-score">${Math.round(c.finalScore)}pts</div>
-        </div>`).join('')}
-  </div>
+      <!-- 핵심 인사이트 -->
+      ${koreanInsights.length > 0 ? `
+      <tr><td style="background:#fff;padding:24px 36px;border-left:1px solid #e0e4ef;border-right:1px solid #e0e4ef">
+        <div style="font-size:14px;font-weight:700;color:#1a1a2e;margin-bottom:14px;padding-bottom:8px;border-bottom:2px solid #f0f2f8">🧠 핵심 인사이트</div>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          ${koreanInsights.slice(0, 5).map(insightCard).join('')}
+        </table>
+      </td></tr>` : ''}
 
-  <div class="section">
-    <div class="section-title">💡 주요 인사이트</div>
-    ${(r.insights || []).map((ins: any) => `
-      <div class="insight-item insight-${ins.category}">
-        <div class="insight-icon">${{dominant:'👑',rising:'📈',newcomer:'🌟',declining:'📉',actor:'🎭',genre:'🎬',regional:'🌏'}[ins.category] || '💡'}</div>
-        <div>
-          <div class="insight-text">${ins.text}</div>
-          <div class="evidence">
-            ${(ins.evidence || []).map((e: string) => `<span>${e}</span>`).join('')}
-          </div>
-        </div>
-      </div>`).join('')}
-  </div>
+      <!-- Reddit 토론 TOP 3 -->
+      ${top3Posts.length > 0 ? `
+      <tr><td style="background:#fff;padding:24px 36px;border-left:1px solid #e0e4ef;border-right:1px solid #e0e4ef">
+        <div style="font-size:14px;font-weight:700;color:#1a1a2e;margin-bottom:14px;padding-bottom:8px;border-bottom:2px solid #f0f2f8">🔥 Reddit 토론 TOP ${top3Posts.length}</div>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          ${top3Posts.map((d: any, i: number) => postCard(d, i)).join('')}
+        </table>
+      </td></tr>` : ''}
 
-  ${r.redditSummary ? `
-  <div class="section">
-    <div class="section-title"><span style="color:#e64a19">▲</span> Reddit 커뮤니티 요약</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
-      <div>
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#9ba3bf;margin-bottom:8px">추천 요청</div>
-        ${(r.redditSummary.recommendations || []).slice(0,5).map((rec: any) =>
-          `<div style="font-size:12px;padding:4px 0;border-bottom:1px solid #f0f2f8;display:flex;justify-content:space-between">
-            <span>${rec.title}</span><span style="color:#9ba3bf">${rec.count}회</span>
+      <!-- MDL Top Airing TOP 3 -->
+      ${top3Dramas.length > 0 ? `
+      <tr><td style="background:#fff;padding:24px 36px;border-left:1px solid #e0e4ef;border-right:1px solid #e0e4ef">
+        <div style="font-size:14px;font-weight:700;color:#1a1a2e;margin-bottom:6px;padding-bottom:8px;border-bottom:2px solid #f0f2f8">📺 MyDramaList Top Airing K-드라마 TOP ${top3Dramas.length}</div>
+        <div style="font-size:11px;color:#9ba3bf;margin-bottom:12px">평균 평점 ${(mdl?.aggregate?.avgRating || 0).toFixed(2)}/10 · ${escNl(mdl?.aggregate?.overallSentimentSummary || '')}</div>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          ${top3Dramas.map((a: any, i: number) => dramaCard(a, i)).join('')}
+        </table>
+      </td></tr>` : ''}
+
+      <!-- 서브레딧 mini -->
+      ${subInsights.length > 0 ? `
+      <tr><td style="background:#fff;padding:24px 36px;border-left:1px solid #e0e4ef;border-right:1px solid #e0e4ef">
+        <div style="font-size:14px;font-weight:700;color:#1a1a2e;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid #f0f2f8">👥 서브레딧별 특성</div>
+        ${subInsights.slice(0, 4).map((s: any) => `
+          <div style="font-size:12px;padding:6px 0;border-bottom:1px solid #f0f2f8;color:#3a4163">
+            <strong style="color:#e64a19">r/${escNl(s.subreddit)}</strong>
+            <span style="color:#9ba3bf"> · ${escNl(s.characteristic)} · 주 행동 ${BEHAVIOR_KO[s.topBehavior] || s.topBehavior} · ${s.postCount}건</span>
           </div>`).join('')}
-      </div>
-      <div>
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#9ba3bf;margin-bottom:8px">리뷰 언급</div>
-        ${(r.redditSummary.reviews || []).slice(0,5).map((rev: any) =>
-          `<div style="font-size:12px;padding:4px 0;border-bottom:1px solid #f0f2f8;display:flex;justify-content:space-between">
-            <span>${rev.title}</span>
-            <span style="padding:1px 6px;border-radius:10px;font-size:10px;background:${rev.sentiment==='positive'?'#e8f5e9':rev.sentiment==='negative'?'#ffebee':'#fff3e0'};color:${rev.sentiment==='positive'?'#2e7d32':rev.sentiment==='negative'?'#c62828':'#e65100'}">${rev.sentiment}</span>
-          </div>`).join('')}
-      </div>
-    </div>
-  </div>` : ''}
+      </td></tr>` : ''}
 
-  <div class="footer">
-    K-Content Intelligence Dashboard · 자동 생성 리포트 · ${now}<br>
-    <span style="font-size:10px">소스: ${(r.sourceSummary || []).map((s: any) => `${s.source}(${s.itemCount})`).join(', ')}</span>
-  </div>
-</div>
+      <!-- Footer -->
+      <tr><td style="background:#fff;padding:20px 36px;border:1px solid #e0e4ef;border-top:none;border-radius:0 0 16px 16px;text-align:center;color:#9ba3bf;font-size:11px;line-height:1.5">
+        K-Content Intelligence Dashboard · 자동 생성 리포트 · ${now}<br>
+        <span style="font-size:10px">소스: ${(r.sourceSummary || []).map((s: any) => `${escNl(s.source)}(${s.itemCount})`).join(', ')}${mdl ? ` · MDL(${(mdl.dramas || []).length} 드라마)` : ''}</span>
+      </td></tr>
+
+    </table>
+  </td></tr>
+</table>
 </body>
 </html>`
 
@@ -453,6 +492,67 @@ app.get('/api/stats', (_req, res) => {
       }
     })
   } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+// ============================================================
+// MDL Top Airing K-드라마 분석
+// - GET: 캐시된 결과 (없으면 stale=null 반환)
+// - POST: 강제 새로고침 (Playwright 크롤링 → 분석 → 캐시 저장)
+// ============================================================
+const MDL_CACHE_KEY = 'top_airing_v1'
+const MDL_CACHE_TTL_SEC = 6 * 3600
+
+app.get('/api/mdl', (_req, res) => {
+  try {
+    const cached = getMdlCache<MdlSummary>(MDL_CACHE_KEY)
+    if (!cached) return res.json({ ok: true, summary: null, cached: false })
+    res.json({
+      ok: true,
+      summary: { ...cached.data, cached: true, fetchedAt: cached.fetchedAt, expiresAt: cached.expiresAt },
+      cached: true,
+    })
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+app.post('/api/mdl/refresh', async (req, res) => {
+  try {
+    const force = req.body?.force === true
+    if (!force) {
+      const cached = getMdlCache<MdlSummary>(MDL_CACHE_KEY)
+      if (cached) {
+        return res.json({
+          ok: true,
+          summary: { ...cached.data, cached: true, fetchedAt: cached.fetchedAt, expiresAt: cached.expiresAt },
+          cached: true,
+        })
+      }
+    }
+
+    console.log('[MDL] 새 크롤링 시작...')
+    const t0 = Date.now()
+    const { crawlMdlTopAiring } = await import('./crawlers/mdl.js')
+    const dramas = await crawlMdlTopAiring({ topN: 5, reviewsPerDrama: 10 })
+    saveCrawlLog('mdl', dramas.length, dramas.length > 0 ? 'success' : 'failed')
+    if (dramas.length === 0) {
+      return res.status(503).json({ ok: false, error: 'MDL 크롤링 실패 (0개 드라마)' })
+    }
+
+    const summary = analyzeMdlDramas(dramas)
+    const ttl = setMdlCache(MDL_CACHE_KEY, summary, MDL_CACHE_TTL_SEC)
+    console.log(`[MDL] 완료 (${((Date.now() - t0) / 1000).toFixed(1)}s) - ${dramas.length}개 드라마, 리뷰 ${dramas.reduce((s, d) => s + d.reviews.length, 0)}개`)
+
+    res.json({
+      ok: true,
+      summary: { ...summary, cached: false, fetchedAt: ttl.fetchedAt, expiresAt: ttl.expiresAt },
+      cached: false,
+    })
+  } catch (e) {
+    console.error('[MDL] 오류:', e)
+    saveCrawlLog('mdl', 0, 'failed', String(e))
     res.status(500).json({ ok: false, error: String(e) })
   }
 })

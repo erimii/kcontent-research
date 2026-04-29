@@ -1,6 +1,6 @@
 # K-Content Intelligence Dashboard
 
-Reddit에서 K-콘텐츠 글로벌 팬 반응을 수집·분석해 **트렌드·감정·쟁점 인사이트 리포트**를 자동 생성하는 로컬 Node.js 애플리케이션.
+**Reddit + MyDramaList**에서 K-콘텐츠 글로벌 팬 반응을 수집·분석해 **트렌드·감정·쟁점 인사이트 리포트**를 자동 생성하는 로컬 Node.js 애플리케이션.
 
 ---
 
@@ -9,7 +9,9 @@ Reddit에서 K-콘텐츠 글로벌 팬 반응을 수집·분석해 **트렌드·
 - **런타임**: Node.js 20+ (Node 25 검증) · TypeScript (tsx)
 - **서버**: Express
 - **DB**: SQLite (better-sqlite3 12.x)
-- **수집**: Reddit Atom RSS (인증 불필요)
+- **수집**:
+  - Reddit Atom RSS (인증 불필요)
+  - MyDramaList — Playwright 헤드리스 (Cloudflare 우회)
 - **프론트**: Vanilla JS SPA (`public/static/app.js`)
 
 ---
@@ -17,22 +19,31 @@ Reddit에서 K-콘텐츠 글로벌 팬 반응을 수집·분석해 **트렌드·
 ## 실행 방법
 
 ```bash
-npm install              # 의존성 설치 (better-sqlite3 빌드 포함)
-npm run dev              # 개발 모드 (watch + tsx)
-npm start                # 프로덕션 모드
+npm install                          # 의존성 설치 (better-sqlite3 빌드 포함)
+npx playwright install chromium      # MDL 크롤링용 (최초 1회)
+npm run dev                          # 개발 모드 (watch + tsx)
+npm start                            # 프로덕션 모드
 ```
 
 서버 실행 후 → **http://localhost:3366**
+
+### 크롤링 호출
 
 데모 파이프라인 (API 키 불필요):
 ```bash
 curl -X POST http://localhost:3366/api/crawl/demo
 ```
 
-실제 크롤링:
+Reddit 실제 크롤링:
 ```bash
 curl -X POST http://localhost:3366/api/crawl \
   -H "Content-Type: application/json" -d '{"type":"daily","sources":["reddit"]}'
+```
+
+MDL Top Airing 크롤링 (캐시 유효 시 즉시 반환):
+```bash
+curl -X POST http://localhost:3366/api/mdl/refresh \
+  -H "Content-Type: application/json" -d '{"force":false}'
 ```
 
 ---
@@ -97,9 +108,24 @@ TOP5 포스트마다:
 
 ---
 
+## MyDramaList 통합 (Top Airing K-드라마 분석)
+
+**별도 파이프라인** ([src/crawlers/mdl.ts](src/crawlers/mdl.ts) + [src/pipeline/mdlAnalysis.ts](src/pipeline/mdlAnalysis.ts))
+
+- **수집**: Playwright 헤드리스로 `https://mydramalist.com/shows/top_airing` → Korean Drama 필터링 → TOP 5 추출 → 각 드라마의 `/reviews`에서 상위 리뷰 10개씩
+- **분석**: 리뷰를 RedditComment 형태로 변환 → 기존 `deepAnalysis` 재활용해 동일한 쟁점 클러스터링·자연어 요약 적용
+- **추가 산출물**:
+  - 평점 분포 (9-10 / 7-9 / 5-7 / <5 4구간)
+  - 별 항목별 평균 (스토리/연기/음악/재시청)
+  - 자연어 인기 사유 (예: `"5점 미만 리뷰 40%로 평가 분열, 연기력(6.3)이 스토리(5.2)보다 높게 평가됨"`)
+  - 집계: 평균 평점, 가장 칭찬·비판받는 토픽
+- **캐시**: `mdl_cache` 테이블, TTL **6시간**. 캐시 hit 시 ~0.5초, miss 시 ~7~15초 (Playwright + Cloudflare 통과)
+
+---
+
 ## 대시보드 화면
 
-좌측 사이드바 6개 메뉴 — **대시보드 / 콘텐츠 랭킹 / Reddit 포스트 / 크롤링 / 스케줄 / 아카이브 / 검색**.
+좌측 사이드바 메뉴 — **대시보드 / 콘텐츠 랭킹 / Reddit 포스트 / 크롤링 / 스케줄 / 아카이브 / 검색**.
 
 ### 대시보드 카드 구성 (위에서 아래로)
 
@@ -108,13 +134,24 @@ TOP5 포스트마다:
 3. **🔥 콘텐츠 트렌드 / 😊 감정 트렌드 / 💬 행동 트렌드** (3-칼럼)
 4. **💭 감정별 주요 논의 주제** — 긍정/중립/부정 컬럼별 TOP3 토픽 + 대표 인용
 5. **👥 서브레딧별 특성** — 카드 그리드, 클릭 시 해당 서브레딧 이동
-6. **🔥 Reddit 토론 TOP 5** — 댓글 합계 기준 가장 활발한 콘텐츠 클러스터
-7. **🔬 TOP5 딥 분석** — 인기 포스트별 인기 사유 / 감정 / 쟁점 클러스터 / 대표 댓글
-8. **💡 자동 인사이트** — 영문 보조 인사이트 (legacy)
+6. **📺 MDL Top Airing K-드라마 TOP 5** — 포스터/평점/평점 분포/댓글 감정/리뷰 쟁점 클러스터/대표 리뷰. 자동 캐시 로드, "새로고침" 버튼으로 강제 재크롤
+7. **🔥 Reddit 토론 TOP 5** — 댓글 합계 기준 가장 활발한 콘텐츠 클러스터
+8. **🔬 TOP5 딥 분석** — 인기 포스트별 인기 사유 / 감정 / 쟁점 클러스터 / 대표 댓글
+9. **💡 자동 인사이트** — 영문 보조 인사이트 (legacy)
 
 ### Reddit 포스트 페이지
 
 상단에 **TOP5 딥 분석** 풀 카드, 그 아래 서브레딧 필터 + 전체 포스트 리스트(클릭 시 원문 이동).
+
+### 크롤링 페이지 (통합 인터페이스)
+
+- 체크박스로 Reddit / MDL 개별 선택 (default 둘 다 ✅)
+- MDL 카드에 "캐시 무시 강제 새로고침" sub-옵션
+- 단일 "크롤링 시작" 버튼 → `Promise.allSettled`로 **병렬 실행** (한쪽 실패 영향 격리)
+
+### 뉴스레터 ([src/server.ts](src/server.ts) `/api/newsletter/:id`)
+
+이메일 친화 `<table>` 레이아웃으로 대시보드 핵심을 압축한 정적 HTML — 헤드라인 / 한국어 인사이트 5개 / Reddit 토론 TOP 3 (쟁점 클러스터 1개씩) / **MDL TOP 3** (캐시 자동 합성) / 서브레딧 mini.
 
 ---
 
@@ -125,6 +162,8 @@ TOP5 포스트마다:
 | GET | `/api/health` | 헬스 체크 |
 | POST | `/api/crawl/demo` | 데모 데이터로 6단계 파이프라인 실행 |
 | POST | `/api/crawl` | 실제 Reddit 크롤링 + 파이프라인 |
+| GET | `/api/mdl` | MDL 캐시 조회 (없으면 `summary: null`) |
+| POST | `/api/mdl/refresh` | MDL Playwright 크롤링 + 분석 + 캐시 저장 (`{force:true}` 시 캐시 무시) |
 | GET | `/api/reports` | 리포트 목록 (`?type=daily\|weekly`) |
 | GET | `/api/reports/latest/:type` | 최신 리포트 |
 | GET | `/api/reports/:id` | 특정 리포트 |
@@ -143,24 +182,26 @@ TOP5 포스트마다:
 ```
 src/
 ├── server.ts              ← Express 서버 + API 라우팅 (포트 3366)
-├── db.ts                  ← SQLite 초기화·CRUD
+├── db.ts                  ← SQLite 초기화·CRUD + MDL 캐시
 ├── demo-data.ts           ← 샘플 Reddit 포스트 (API 키 없이 테스트용)
 ├── crawlers/
-│   └── reddit.ts          ← RSS 기반 Reddit 수집 (4개 서브레딧)
+│   ├── reddit.ts          ← RSS 기반 Reddit 수집 (4개 서브레딧)
+│   └── mdl.ts             ← Playwright 기반 MyDramaList 크롤러
 ├── pipeline/
 │   ├── index.ts           ← 6단계 오케스트레이션
 │   ├── filter.ts          ← Stage 2 필터링
 │   ├── trends.ts          ← Stage 3 트렌드 분석
 │   ├── deepAnalysis.ts    ← Stage 5 딥 분석 (쟁점 클러스터링)
 │   ├── insight.ts         ← Stage 6 한국어 인사이트 + legacy English
+│   ├── mdlAnalysis.ts     ← MDL 드라마 단위 분석 (deepAnalysis 재활용)
 │   ├── normalizer.ts      ← 정규화·드라마 제목 추출
 │   ├── clusterer.ts       ← Jaccard/Levenshtein 타이틀 클러스터링
 │   ├── scorer.ts          ← 종합 점수 산출
 │   └── korean-filter.ts   ← K-콘텐츠 판별
-└── types/index.ts         ← 모든 타입 정의
+└── types/index.ts         ← 모든 타입 정의 (Reddit + MDL)
 
 public/static/
-├── app.js                 ← Vanilla JS SPA
+├── app.js                 ← Vanilla JS SPA (대시보드 + 크롤링 통합)
 └── style.css
 
 data/k-content.db          ← SQLite (자동 생성)
@@ -172,17 +213,19 @@ data/k-content.db          ← SQLite (자동 생성)
 
 ```
 data/k-content.db
-├── reports           - 리포트 전체 JSON 저장
+├── reports           - Reddit 리포트 전체 JSON 저장
 ├── content_snapshots - 콘텐츠별 점수·메타데이터 스냅샷
-└── crawl_logs        - 크롤링 실행 이력
+├── crawl_logs        - 크롤링 실행 이력 (Reddit + MDL)
+└── mdl_cache         - MDL Top Airing 분석 결과 (TTL 6h, key='top_airing_v1')
 ```
 
 ---
 
 ## 미완 / 향후 작업
 
-- **트렌드 변화 (T-1 vs 7일 비교)** — 과거 baseline 누적 필요. `content_snapshots` 활용해 이전 기간 대비 급상승 키워드 탐지.
+- **트렌드 변화 (T-1 vs 7일 비교)** — 과거 baseline 누적 필요. `content_snapshots` / `mdl_cache` 시계열 활용해 이전 기간 대비 급상승 키워드 탐지.
 - **OAuth API 전환** — 현재 RSS는 `score`(upvotes) 미제공. Reddit OAuth로 전환 시 정확한 추천수 반영 가능.
+- **MDL 동적 토픽 라벨 정제** — 가끔 의미 약한 단어가 토픽으로 잡힘. LLM 또는 더 정교한 키워드 가중치 적용 검토.
 - **추가 소스** — Letterboxd 리뷰, Google Trends, Instagram/TikTok/X 해시태그 모니터링.
 - **node-cron 자동 실행** — 일간/주간 스케줄 자동화.
 
@@ -194,3 +237,4 @@ data/k-content.db
 - `better-sqlite3` 12.x로 업그레이드 (Node 25 native build 호환)
 - Reddit RSS `<link>` 파싱은 `rel="alternate"` 없이 `href` 속성 매칭 ([src/crawlers/reddit.ts](src/crawlers/reddit.ts))
 - `/api/reports/latest/:type` 응답은 `{ ...row, data: <RankedReport> }`로 래핑됨 — frontend `loadLatestReport()`에서 `res.report.data || res.report`로 unwrap ([public/static/app.js](public/static/app.js))
+- MDL Playwright `page.evaluate` 안에서는 tsx의 `__name` 헬퍼 주입을 피하기 위해 inner arrow function·type 어노테이션을 사용하지 않음 ([src/crawlers/mdl.ts](src/crawlers/mdl.ts))

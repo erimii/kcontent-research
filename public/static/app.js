@@ -64,6 +64,8 @@ const state = {
   crawlLogs: [],
   stats: null,
   schedule: null,
+  mdlSummary: null,
+  mdlLoading: false,
 }
 
 // ============================================================
@@ -254,6 +256,211 @@ function renderTrends(r) {
         </div>
       </div>
     </div>`
+}
+
+// ============================================================
+// MDL Top Airing K-드라마 카드
+// ============================================================
+async function loadMdlSummary(force = false) {
+  const slot = document.getElementById('mdl-section')
+  if (!slot) return
+  if (state.mdlLoading) return
+  state.mdlLoading = true
+
+  if (!force) {
+    try {
+      const r = await fetch('/api/mdl').then(x => x.json())
+      if (r.ok && r.summary) {
+        state.mdlSummary = r.summary
+        slot.innerHTML = renderMdlCard(r.summary)
+        state.mdlLoading = false
+        return
+      }
+    } catch {}
+  }
+
+  // 캐시 미스 또는 강제 새로고침
+  slot.innerHTML = renderMdlPlaceholder('loading')
+  try {
+    const r = await fetch('/api/mdl/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ force }),
+    }).then(x => x.json())
+    if (r.ok && r.summary) {
+      state.mdlSummary = r.summary
+      slot.innerHTML = renderMdlCard(r.summary)
+    } else {
+      slot.innerHTML = renderMdlPlaceholder('error', r.error)
+    }
+  } catch (e) {
+    slot.innerHTML = renderMdlPlaceholder('error', String(e))
+  }
+  state.mdlLoading = false
+}
+
+function renderMdlPlaceholder(mode, errMsg) {
+  if (mode === 'loading') {
+    return `
+      <div class="card">
+        <div class="card-header"><div class="card-title"><i class="fas fa-tv" style="color:#a78bfa"></i> MDL Top Airing K-드라마</div></div>
+        <div class="card-body" style="padding:30px;text-align:center;color:var(--text-muted)">
+          <div class="spinner" style="margin:0 auto 12px"></div>
+          MDL에서 한국 드라마 + 리뷰 분석 중... (~7~15초)
+        </div>
+      </div>`
+  }
+  if (mode === 'error') {
+    return `
+      <div class="card">
+        <div class="card-header"><div class="card-title"><i class="fas fa-tv" style="color:#a78bfa"></i> MDL Top Airing K-드라마</div></div>
+        <div class="card-body" style="padding:18px;color:var(--text-muted);font-size:12px">
+          크롤링 실패. <button class="btn btn-outline" style="padding:3px 10px;font-size:11px;margin-left:6px" onclick="loadMdlSummary(true)">재시도</button>
+          ${errMsg ? `<div style="margin-top:8px;font-family:monospace;font-size:10px;opacity:0.6">${escHtml(errMsg.slice(0, 200))}</div>` : ''}
+        </div>
+      </div>`
+  }
+  return ''
+}
+
+function renderMdlCard(s) {
+  if (!s || !s.dramas || s.dramas.length === 0) return ''
+  const fetchedDate = new Date(s.fetchedAt)
+  const ago = Math.round((Date.now() - fetchedDate.getTime()) / 60000)
+  const cacheLabel = s.cached
+    ? `<span style="font-size:10px;color:var(--text-muted)">캐시 · ${ago}분 전</span>`
+    : `<span style="font-size:10px;color:#10b981">방금 새로 가져옴</span>`
+
+  return `
+    <div class="card">
+      <div class="card-header" style="border-left:3px solid #a78bfa">
+        <div class="card-title"><i class="fas fa-tv" style="color:#a78bfa"></i> MDL Top Airing K-드라마 TOP ${s.dramas.length}</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          ${cacheLabel}
+          <button class="btn btn-outline" style="padding:3px 10px;font-size:11px" onclick="loadMdlSummary(true)">
+            <i class="fas fa-sync-alt"></i> 새로고침
+          </button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:14px">
+        <!-- 집계 -->
+        <div style="padding:10px 14px;background:rgba(167,139,250,0.06);border-left:3px solid #a78bfa;border-radius:6px;margin-bottom:14px;font-size:12px;line-height:1.6">
+          <div style="font-size:10px;color:#c4b5fd;text-transform:uppercase;font-weight:700;margin-bottom:3px">📊 종합</div>
+          평균 MDL 평점 <strong>${s.aggregate.avgRating.toFixed(2)}/10</strong> · ${escHtml(s.aggregate.overallSentimentSummary)}
+          ${s.aggregate.topPraisedTopic ? ` · 가장 많이 칭찬받는 주제 <strong style="color:#10b981">${escHtml(s.aggregate.topPraisedTopic)}</strong>` : ''}
+          ${s.aggregate.topCriticizedTopic ? ` · 가장 많이 비판받는 주제 <strong style="color:#ef4444">${escHtml(s.aggregate.topCriticizedTopic)}</strong>` : ''}
+        </div>
+        <!-- 드라마 목록 -->
+        ${s.dramas.map((d, i) => renderMdlDrama(d, i)).join('')}
+      </div>
+    </div>`
+}
+
+function renderMdlDrama(a, idx) {
+  const d = a.drama
+  const sent = a.reviewSentiment
+  const total = sent.positive + sent.negative || 1
+  const pos = Math.round(sent.positiveRatio * 100)
+  const neg = Math.round(sent.negativeRatio * 100)
+  const br = a.ratingBreakdown
+  const distTotal = br.distribution['9-10'] + br.distribution['7-9'] + br.distribution['5-7'] + br.distribution['below5'] || 1
+  const distBar = (n, color) => `<div style="flex:${n};background:${color}"></div>`
+
+  return `
+    <div style="padding:14px 0;border-top:1px solid rgba(255,255,255,0.05);${idx === 0 ? 'border-top:none;padding-top:0' : ''}">
+      <!-- 헤더 -->
+      <div style="display:flex;gap:14px;align-items:start">
+        ${d.posterUrl ? `<img src="${d.posterUrl}" alt="${escHtml(d.title)}" style="width:80px;height:115px;object-fit:cover;border-radius:6px;flex-shrink:0">` : ''}
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:4px">
+            <div style="font-size:14px;font-weight:700">
+              <span style="color:#a78bfa;margin-right:6px">#${idx+1}</span>
+              <a href="${d.url}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none">${escHtml(d.title)}</a>
+            </div>
+            <div style="font-size:13px;font-weight:700;color:#a78bfa;white-space:nowrap">⭐ ${d.rating.toFixed(1)}</div>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">
+            ${d.year ? d.year + ' · ' : ''}${d.episodes ? d.episodes + '부작 · ' : ''}리뷰 ${d.reviewCount}개
+          </div>
+          ${d.description ? `<div style="font-size:11px;color:var(--text-muted);line-height:1.5;margin-bottom:6px">${escHtml(d.description.slice(0, 200))}${d.description.length > 200 ? '...' : ''}</div>` : ''}
+          <div style="font-size:12px;line-height:1.6;color:var(--text-primary)">${escHtml(a.popularityReason)}</div>
+        </div>
+      </div>
+
+      <!-- 평점 분포 + 감정 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px">
+        <div style="padding:8px 10px;background:rgba(167,139,250,0.05);border-radius:4px;border-left:2px solid #a78bfa">
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:4px">⭐ 평점 분포 (${distTotal}개 리뷰)</div>
+          <div style="display:flex;height:6px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,0.04)">
+            ${distBar(br.distribution['9-10'], '#10b981')}
+            ${distBar(br.distribution['7-9'], '#3b82f6')}
+            ${distBar(br.distribution['5-7'], '#f59e0b')}
+            ${distBar(br.distribution['below5'], '#ef4444')}
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:10px;margin-top:3px;color:var(--text-muted)">
+            <span style="color:#10b981">9-10: ${br.distribution['9-10']}</span>
+            <span style="color:#3b82f6">7-9: ${br.distribution['7-9']}</span>
+            <span style="color:#f59e0b">5-7: ${br.distribution['5-7']}</span>
+            <span style="color:#ef4444">&lt;5: ${br.distribution['below5']}</span>
+          </div>
+          ${br.avgStory && br.avgActing ? `
+            <div style="display:flex;gap:8px;font-size:10px;margin-top:6px;color:var(--text-muted);flex-wrap:wrap">
+              <span>스토리 ${br.avgStory.toFixed(1)}</span>
+              <span>연기 ${br.avgActing.toFixed(1)}</span>
+              ${br.avgMusic ? `<span>음악 ${br.avgMusic.toFixed(1)}</span>` : ''}
+              ${br.avgRewatch ? `<span>재시청 ${br.avgRewatch.toFixed(1)}</span>` : ''}
+            </div>` : ''}
+        </div>
+        <div style="padding:8px 10px;background:rgba(16,185,129,0.05);border-radius:4px;border-left:2px solid #10b981">
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:4px">💬 댓글 감정</div>
+          <div style="font-size:11px;line-height:1.5">${escHtml(a.sentimentSummary)}</div>
+          ${total > 1 ? `
+            <div style="margin-top:5px;display:flex;height:5px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,0.04)">
+              <div style="width:${pos}%;background:#10b981"></div>
+              <div style="width:${neg}%;background:#ef4444"></div>
+            </div>` : ''}
+        </div>
+      </div>
+
+      <!-- 쟁점 클러스터 -->
+      ${(a.reviewDebates && a.reviewDebates.length) ? `
+        <div style="margin-top:10px">
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:5px">🗣️ 리뷰 쟁점 클러스터</div>
+          ${renderCommentDebatesInline(a.reviewDebates)}
+        </div>` : ''}
+
+      <!-- 대표 리뷰 -->
+      ${(a.representativeReviews && a.representativeReviews.length) ? `
+        <div style="margin-top:10px">
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:5px">📝 대표 리뷰</div>
+          ${a.representativeReviews.map(r => `
+            <div style="font-size:11px;padding:6px 10px;background:rgba(255,255,255,0.025);border-left:2px solid ${SENT_COLOR[r.sentiment]};margin-bottom:4px;border-radius:3px;line-height:1.5">
+              <span style="margin-right:5px">${SENT_ICON[r.sentiment]}</span>
+              <strong style="color:#a78bfa">${escHtml(r.username)}</strong>
+              <span style="color:var(--text-muted)">⭐${r.rating}</span>
+              <span style="color:var(--text-muted);margin-left:6px">👍${r.helpful}</span>
+              <div style="margin-top:3px;color:var(--text-primary)">"${escHtml(r.body)}"</div>
+            </div>`).join('')}
+        </div>` : ''}
+    </div>`
+}
+
+function renderCommentDebatesInline(debates) {
+  return debates.slice(0, 3).map((d, i) => {
+    const meta = DEBATE_DIR_META[d.opinionDirection] || DEBATE_DIR_META.discussion
+    return `
+      <div style="padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:4px;border-left:2px solid ${meta.color};margin-bottom:5px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:3px">
+          <div style="font-size:12px;font-weight:600">
+            <span style="color:${meta.color};margin-right:5px">[${i+1}]</span>${escHtml(d.topic)}
+          </div>
+          <span style="font-size:10px;color:${meta.color};white-space:nowrap">${meta.icon} ${escHtml(d.opinionDistribution.mixedLabel)}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);line-height:1.5">
+          ${escHtml(d.description)} <span style="color:#a78bfa">— ${escHtml(d.interpretation)}</span>
+        </div>
+      </div>`
+  }).join('')
 }
 
 function renderSentimentTopics(r) {
@@ -580,6 +787,8 @@ function renderDashboard() {
       ${renderTrends(r)}
       ${renderSentimentTopics(r)}
       ${renderSubredditInsights(r)}
+      <div id="mdl-section"></div>
+      <script>if(typeof loadMdlSummary==='function')loadMdlSummary()</script>
 
       <!-- Reddit 토론 TOP 5 -->
       <div>
@@ -866,11 +1075,46 @@ function renderRanking() {
 // Page: Crawl
 // ============================================================
 function renderCrawl() {
+  if (!window._selectedSources) window._selectedSources = { reddit: true, mdl: true }
+  const sel = window._selectedSources
+  const mdlForce = window._mdlForce || false
+
+  // MDL 캐시 상태 hint
+  let mdlCacheHint = '<span style="color:#f59e0b">캐시 없음</span>'
+  if (state.mdlSummary) {
+    const ageMin = Math.round((Date.now() - new Date(state.mdlSummary.fetchedAt).getTime()) / 60000)
+    const expired = new Date(state.mdlSummary.expiresAt).getTime() < Date.now()
+    mdlCacheHint = expired
+      ? `<span style="color:#f59e0b">캐시 만료 (${ageMin}분 전)</span>`
+      : `<span style="color:#10b981">캐시 ${ageMin}분 전 · 캐시 사용</span>`
+  }
+
+  const sourceCard = (key, color, icon, name, desc, extra) => `
+    <label class="card" style="padding:14px;border-color:${sel[key] ? color + '55' : 'rgba(255,255,255,0.06)'};cursor:pointer;opacity:${sel[key] ? '1' : '0.5'};transition:all 0.15s">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+        <input type="checkbox" ${sel[key] ? 'checked' : ''} onchange="toggleSource('${key}')"
+               style="width:16px;height:16px;cursor:pointer;accent-color:${color}">
+        <i class="${icon}" style="color:${color};font-size:16px"></i>
+        <span style="font-weight:600;font-size:13px">${name}</span>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);padding-left:32px">${desc}</div>
+      ${extra ? `<div style="padding-left:32px;margin-top:6px">${extra}</div>` : ''}
+    </label>`
+
+  const mdlExtra = sel.mdl ? `
+    <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted);cursor:pointer">
+      <input type="checkbox" ${mdlForce ? 'checked' : ''} onchange="toggleMdlForce()"
+             style="width:13px;height:13px;cursor:pointer;accent-color:#a78bfa">
+      캐시 무시하고 강제 새로고침
+    </label>` : ''
+
+  const anySelected = sel.reddit || sel.mdl
+
   return `
     <div class="page-header">
       <div>
         <div class="page-title">🤖 크롤링 제어</div>
-        <div class="page-sub">Reddit RSS 기반 실시간 데이터 수집</div>
+        <div class="page-sub">Reddit + MyDramaList 통합 데이터 수집</div>
       </div>
     </div>
     <div style="padding:20px 28px;display:flex;flex-direction:column;gap:20px">
@@ -878,16 +1122,20 @@ function renderCrawl() {
       <div class="card">
         <div class="card-header">
           <div class="card-title"><i class="fas fa-cog"></i> 크롤링 설정</div>
+          <span style="font-size:11px;color:var(--text-muted)">소스 선택 후 실행</span>
         </div>
         <div class="card-body">
-          <div style="display:grid;grid-template-columns:1fr;gap:12px;margin-bottom:16px">
-            <div class="card" style="padding:14px;border-color:#ff653333">
-              <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-                <i class="fab fa-reddit" style="color:#ff6534;font-size:16px"></i>
-                <span style="font-weight:600;font-size:13px">Reddit</span>
-              </div>
-              <div style="font-size:11px;color:var(--text-muted);padding-left:26px">r/kdramas, r/kdrama, r/kdramarecommends, r/korean, r/koreatravel · hot+new · 1주 이내</div>
-            </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+            ${sourceCard(
+              'reddit', '#ff6534', 'fab fa-reddit', 'Reddit',
+              'r/kdramas, r/kdrama, r/kdramarecommends, r/korean · hot+new · 1주 이내',
+              ''
+            )}
+            ${sourceCard(
+              'mdl', '#a78bfa', 'fas fa-tv', 'MyDramaList',
+              `top_airing K-드라마 5개 + 리뷰 10개씩 · ${mdlCacheHint}`,
+              mdlExtra
+            )}
           </div>
 
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -895,12 +1143,13 @@ function renderCrawl() {
               <button class="tab-btn active" id="type-daily"  onclick="setCrawlType('daily')">일간</button>
               <button class="tab-btn"        id="type-weekly" onclick="setCrawlType('weekly')">주간</button>
             </div>
-            <button class="btn btn-primary" id="crawl-btn" onclick="startCrawl()">
-              <i class="fas fa-spider"></i> 실제 크롤링 시작
+            <button class="btn btn-primary" id="crawl-btn" onclick="startCrawl()" ${anySelected ? '' : 'disabled'}>
+              <i class="fas fa-spider"></i> 크롤링 시작
             </button>
             <button class="btn btn-outline" onclick="runDemo(window._crawlType||'daily')">
               <i class="fas fa-vial"></i> 데모 데이터로 실행
             </button>
+            ${!anySelected ? '<span style="font-size:11px;color:#f59e0b">⚠ 최소 한 개 소스 선택</span>' : ''}
           </div>
         </div>
       </div>
@@ -1133,10 +1382,22 @@ function renderNoReport() {
 function navigateTo(page) {
   state.page = page
   render()
-  if (page === 'crawl')    setTimeout(loadLogs, 100)
+  if (page === 'crawl')    { setTimeout(loadLogs, 100); setTimeout(prefetchMdlCache, 100) }
   if (page === 'history')  setTimeout(loadHistory, 100)
   if (page === 'schedule') setTimeout(loadSchedule, 100)
   if (page === 'reddit')   { window._redditSub = '전체'; renderPage() }
+  if (page === 'dashboard' && typeof loadMdlSummary === 'function') setTimeout(() => loadMdlSummary(false), 100)
+}
+
+async function prefetchMdlCache() {
+  if (state.mdlSummary) return
+  try {
+    const r = await fetch('/api/mdl').then(x => x.json())
+    if (r.ok && r.summary) {
+      state.mdlSummary = r.summary
+      if (state.page === 'crawl') renderPage()
+    }
+  } catch {}
 }
 
 function setRankTab(tab) {
@@ -1160,6 +1421,17 @@ function updateSourceCard(id) {
   const checked = document.getElementById(`src-${id}`)?.checked
   const card = document.getElementById(`src-${id}-card`)
   if (card) card.style.opacity = checked ? '1' : '0.4'
+}
+
+function toggleSource(key) {
+  if (!window._selectedSources) window._selectedSources = { reddit: true, mdl: true }
+  window._selectedSources[key] = !window._selectedSources[key]
+  if (state.page === 'crawl') renderPage()
+}
+
+function toggleMdlForce() {
+  window._mdlForce = !window._mdlForce
+  if (state.page === 'crawl') renderPage()
 }
 
 // ============================================================
@@ -1194,7 +1466,13 @@ async function runDemo(type = 'daily') {
 async function startCrawl() {
   if (state.crawling) return
   const type = window._crawlType || 'daily'
-  const sources = ['reddit']
+  const sel = window._selectedSources || { reddit: true, mdl: true }
+  const mdlForce = !!window._mdlForce
+
+  if (!sel.reddit && !sel.mdl) {
+    toast('최소 한 개 소스를 선택해주세요', 'error')
+    return
+  }
 
   state.crawling = true
   state.crawlLogs = []
@@ -1214,27 +1492,77 @@ async function startCrawl() {
   }
 
   if (logArea) logArea.innerHTML = ''
-  addLog(`크롤링 시작: ${sources.join(', ')} (${type})`, 'info')
+  const labels = []
+  if (sel.reddit) labels.push('Reddit')
+  if (sel.mdl) labels.push('MDL' + (mdlForce ? ' (강제)' : ''))
+  addLog(`크롤링 시작: ${labels.join(' + ')} (${type})`, 'info')
 
-  try {
-    const res = await API.crawl(type, sources)
-    if (res.ok) {
-      state.currentReport = res.report
-      ;(res.logs || []).forEach(l => addLog(l, 'success'))
-      addLog(`✅ 완료! 클러스터: ${res.report.topContents?.length}개`, 'success')
-      toast('크롤링 완료!', 'success')
-    } else {
-      ;(res.logs || []).forEach(l => addLog(l, 'info'))
-      addLog('❌ 오류: ' + (res.error || ''), 'error')
-      toast('크롤링 실패: ' + (res.error || ''), 'error')
-    }
-  } catch (e) {
-    addLog('❌ 연결 오류: ' + e.message, 'error')
-    toast('크롤링 서버 오류', 'error')
-  } finally {
-    state.crawling = false
-    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-spider"></i> 실제 크롤링 시작' }
+  // 두 소스를 병렬 처리
+  const tasks = []
+
+  if (sel.reddit) {
+    tasks.push((async () => {
+      addLog('[Reddit] 시작...', 'info')
+      try {
+        const res = await API.crawl(type, ['reddit'])
+        if (res.ok) {
+          state.currentReport = res.report
+          ;(res.logs || []).forEach(l => addLog(`[Reddit] ${l}`, 'success'))
+          addLog(`[Reddit] ✅ 완료 — 클러스터 ${res.report.topContents?.length || 0}개`, 'success')
+          return { source: 'reddit', ok: true }
+        }
+        addLog(`[Reddit] ❌ ${res.error || '오류'}`, 'error')
+        return { source: 'reddit', ok: false, error: res.error }
+      } catch (e) {
+        addLog(`[Reddit] ❌ 연결 오류: ${e.message}`, 'error')
+        return { source: 'reddit', ok: false, error: e.message }
+      }
+    })())
   }
+
+  if (sel.mdl) {
+    tasks.push((async () => {
+      addLog(`[MDL] 시작${mdlForce ? ' (캐시 무시)' : ''}...`, 'info')
+      try {
+        const res = await fetch('/api/mdl/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ force: mdlForce }),
+        }).then(x => x.json())
+        if (res.ok && res.summary) {
+          state.mdlSummary = res.summary
+          const n = res.summary.dramas?.length || 0
+          const totalReviews = res.summary.dramas?.reduce((s, d) => s + (d.drama?.reviewCount || 0), 0) || 0
+          if (res.cached) {
+            addLog(`[MDL] ✅ 캐시 사용 — 드라마 ${n}개, 리뷰 ${totalReviews}개`, 'success')
+          } else {
+            addLog(`[MDL] ✅ 새 크롤링 완료 — 드라마 ${n}개, 리뷰 ${totalReviews}개`, 'success')
+          }
+          return { source: 'mdl', ok: true }
+        }
+        addLog(`[MDL] ❌ ${res.error || '오류'}`, 'error')
+        return { source: 'mdl', ok: false, error: res.error }
+      } catch (e) {
+        addLog(`[MDL] ❌ 연결 오류: ${e.message}`, 'error')
+        return { source: 'mdl', ok: false, error: e.message }
+      }
+    })())
+  }
+
+  const results = await Promise.allSettled(tasks)
+  const succeeded = results.filter(r => r.status === 'fulfilled' && r.value.ok).length
+  const failed = results.length - succeeded
+
+  if (failed === 0) {
+    toast(`✅ 크롤링 완료 (${succeeded}개 소스)`, 'success')
+  } else if (succeeded === 0) {
+    toast(`❌ 모든 소스 실패`, 'error')
+  } else {
+    toast(`⚠ ${succeeded}개 성공, ${failed}개 실패`, 'info')
+  }
+
+  state.crawling = false
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-spider"></i> 크롤링 시작' }
 }
 
 async function triggerSchedule(type) {

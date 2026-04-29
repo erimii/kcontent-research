@@ -212,3 +212,84 @@ export interface KoreanInsight {
   text: string
   evidence?: string[]
 }
+
+// ============================================================
+// MyDramaList (MDL) — Top airing K-드라마 + 리뷰 분석
+// ============================================================
+
+export interface MdlReviewRatings {
+  overall: number
+  story?: number
+  acting?: number
+  music?: number
+  rewatch?: number
+}
+
+export interface MdlReview {
+  username: string
+  helpful: number
+  ratings: MdlReviewRatings
+  status?: 'Ongoing' | 'Completed' | 'Dropped' | string
+  episodesWatched?: string
+  daysAgo?: string
+  title?: string
+  body: string
+}
+
+export interface MdlDrama {
+  slug: string
+  title: string
+  url: string
+  rating: number
+  posterUrl?: string
+  episodes?: number
+  year?: number
+  description?: string
+  reviews: MdlReview[]
+}
+
+export interface MdlDramaAnalysis {
+  drama: {
+    slug: string
+    title: string
+    url: string
+    rating: number
+    posterUrl?: string
+    episodes?: number
+    year?: number
+    description?: string
+    reviewCount: number
+  }
+  reviewSentiment: {
+    positive: number
+    negative: number
+    neutral: number
+    positiveRatio: number
+    negativeRatio: number
+  }
+  sentimentSummary: string
+  ratingBreakdown: {
+    avgOverall: number
+    avgStory?: number
+    avgActing?: number
+    avgMusic?: number
+    avgRewatch?: number
+    distribution: { '9-10': number; '7-9': number; '5-7': number; 'below5': number }
+  }
+  reviewDebates: DebateTopic[]
+  popularityReason: string
+  representativeReviews: { username: string; rating: number; helpful: number; body: string; sentiment: 'positive' | 'negative' | 'neutral' }[]
+}
+
+export interface MdlSummary {
+  fetchedAt: string
+  cached: boolean
+  expiresAt: string
+  dramas: MdlDramaAnalysis[]
+  aggregate: {
+    avgRating: number
+    topPraisedTopic?: string
+    topCriticizedTopic?: string
+    overallSentimentSummary: string
+  }
+}

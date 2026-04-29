@@ -65,8 +65,36 @@ export function initDb() {
       ON content_snapshots(is_k_content, final_score DESC);
     CREATE INDEX IF NOT EXISTS idx_crawl_source
       ON crawl_logs(source, crawled_at DESC);
+
+    CREATE TABLE IF NOT EXISTS mdl_cache (
+      key TEXT PRIMARY KEY,
+      data TEXT NOT NULL,
+      fetched_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    );
   `)
   console.log(`[DB] 초기화 완료: ${DB_PATH}`)
+}
+
+// ============================================================
+// MDL 캐시 (TTL 기반)
+// ============================================================
+export function getMdlCache<T = unknown>(key: string): { data: T; fetchedAt: string; expiresAt: string } | null {
+  const row = db.prepare(`SELECT data, fetched_at, expires_at FROM mdl_cache WHERE key = ?`).get(key) as
+    | { data: string; fetched_at: string; expires_at: string }
+    | undefined
+  if (!row) return null
+  if (new Date(row.expires_at).getTime() < Date.now()) return null
+  return { data: JSON.parse(row.data) as T, fetchedAt: row.fetched_at, expiresAt: row.expires_at }
+}
+
+export function setMdlCache(key: string, data: unknown, ttlSec: number): { fetchedAt: string; expiresAt: string } {
+  const now = new Date()
+  const expiresAt = new Date(now.getTime() + ttlSec * 1000)
+  db.prepare(
+    `INSERT OR REPLACE INTO mdl_cache (key, data, fetched_at, expires_at) VALUES (?, ?, ?, ?)`
+  ).run(key, JSON.stringify(data), now.toISOString(), expiresAt.toISOString())
+  return { fetchedAt: now.toISOString(), expiresAt: expiresAt.toISOString() }
 }
 
 // ============================================================
