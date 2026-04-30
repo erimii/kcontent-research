@@ -495,6 +495,16 @@ const YT_CONTENT_COLOR = {
   review: '#3b82f6', actor: '#10b981', other: '#6b7280',
 }
 
+const YT_CHANNEL_COLOR = {
+  official: '#10b981', influencer: '#f59e0b', community: '#6b7280',
+}
+
+const YT_CHANNEL_BADGE = {
+  official: '<span style="display:inline-block;padding:1px 6px;background:rgba(16,185,129,0.15);color:#10b981;font-size:9px;font-weight:700;border-radius:8px;margin-left:4px">✓ 공식</span>',
+  influencer: '<span style="display:inline-block;padding:1px 6px;background:rgba(245,158,11,0.15);color:#f59e0b;font-size:9px;font-weight:700;border-radius:8px;margin-left:4px">🎤 인플루언서</span>',
+  community: '',
+}
+
 const YT_REACTION_COLOR = {
   emotion: '#ef4444', empathy: '#f59e0b', info_request: '#3b82f6',
   praise: '#10b981', criticism: '#6b7280',
@@ -540,13 +550,13 @@ function renderYoutubeCard(s) {
           <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:8px">① 인기 콘텐츠 TOP</div>
           ${collapsibleSection('yt-top', s.topVideos, 5, (v) => `
             <a href="https://www.youtube.com/watch?v=${escHtml(v.id)}" target="_blank" rel="noopener noreferrer"
-               style="display:flex;gap:10px;padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:4px;border-left:2px solid ${YT_CONTENT_COLOR[v.contentType] || '#6b7280'};margin-bottom:5px;text-decoration:none;color:inherit">
+               style="display:flex;gap:10px;padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:4px;border-left:2px solid ${YT_CHANNEL_COLOR[v.channelType] || '#6b7280'};margin-bottom:5px;text-decoration:none;color:inherit">
               ${v.thumbnail ? `<img src="${escHtml(v.thumbnail)}" style="width:80px;height:45px;object-fit:cover;border-radius:3px;flex-shrink:0">` : ''}
               <div style="flex:1;min-width:0">
-                <div style="font-size:12px;font-weight:600;line-height:1.4;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${escHtml(v.title)}</div>
+                <div style="font-size:12px;font-weight:600;line-height:1.4;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${escHtml(v.title)}${YT_CHANNEL_BADGE[v.channelType] || ''}</div>
                 <div style="font-size:10px;color:var(--text-muted);margin-top:3px">
                   <span style="color:${YT_CONTENT_COLOR[v.contentType] || '#6b7280'}">${v.contentType}</span>
-                  · ${escHtml(v.channel)}${v.isOfficial ? ' <span style="color:#10b981">✓공식</span>' : ''}
+                  · ${escHtml(v.channel)}
                   · 👁 ${fmtViews(v.views || 0)}${v.likes ? ' · 👍 ' + fmtViews(v.likes) : ''}
                   ${v.publishedText ? ' · ' + escHtml(v.publishedText) : ''}
                 </div>
@@ -554,9 +564,17 @@ function renderYoutubeCard(s) {
             </a>`)}
         </div>
 
-        <!-- 2. 콘텐츠 유형 분포 -->
+        <!-- 2. 채널 타입 + 콘텐츠 유형 분포 -->
         <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.05)">
-          <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:8px">② 콘텐츠 유형 분포</div>
+          ${(s.channelTypeStats || []).length > 0 ? `
+            <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:6px">② 채널 타입 분포</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">
+              ${(s.channelTypeStats || []).map(c => `
+                <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:rgba(255,255,255,0.03);border-radius:14px;font-size:11px;border-left:3px solid ${YT_CHANNEL_COLOR[c.channelType] || '#6b7280'}">
+                  ${escHtml(c.label)} <strong>${c.count}</strong> <span style="color:var(--text-muted);font-size:10px">(${fmtViews(c.totalViews)} views)</span>
+                </span>`).join('')}
+            </div>` : ''}
+          <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:6px">③ 콘텐츠 유형 분포</div>
           <div style="display:flex;flex-wrap:wrap;gap:6px">
             ${(s.contentTypeStats || []).map(c => `
               <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:rgba(255,255,255,0.03);border-radius:14px;font-size:11px;border-left:3px solid ${YT_CONTENT_COLOR[c.type] || '#6b7280'}">
@@ -568,7 +586,7 @@ function renderYoutubeCard(s) {
         <!-- 3. 발화 phrase TOP -->
         ${(s.topPhrases || []).length > 0 ? `
         <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.05)">
-          <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:8px">③ 발화 내용 (제목·설명 반복)</div>
+          <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:8px">④ 발화 내용 (제목·설명 반복)</div>
           <div style="display:flex;flex-wrap:wrap;gap:5px">
             ${s.topPhrases.slice(0, 15).map(p => `<span class="insight-chip" style="font-size:11px">${escHtml(p.phrase)} <strong>${p.count}</strong></span>`).join('')}
           </div>
@@ -577,7 +595,7 @@ function renderYoutubeCard(s) {
         <!-- 4. 댓글 반응 패턴 -->
         ${(s.reactionPatterns || []).length > 0 ? `
         <div style="padding:14px 18px">
-          <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:8px">④ 댓글 반응 패턴</div>
+          <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:8px">⑤ 댓글 반응 패턴</div>
           <div style="display:flex;flex-direction:column;gap:6px">
             ${s.reactionPatterns.map(rp => `
               <div style="padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:4px;border-left:2px solid ${YT_REACTION_COLOR[rp.category] || '#6b7280'}">

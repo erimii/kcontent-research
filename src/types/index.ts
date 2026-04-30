@@ -349,6 +349,8 @@ export interface YoutubeComment {
   likes: number
 }
 
+export type YoutubeChannelType = 'official' | 'influencer' | 'community'
+
 export interface YoutubeVideo {
   id: string
   title: string
@@ -363,7 +365,8 @@ export interface YoutubeVideo {
   description?: string
   hashtag: string                // 해당 영상이 잡힌 해시태그
   contentType: YoutubeContentType
-  isOfficial: boolean            // Netflix/KOCOWA 등 공식
+  channelType: YoutubeChannelType  // official / influencer / community
+  isOfficial: boolean            // (호환용) channelType === 'official'
   comments: YoutubeComment[]
 }
 
@@ -387,6 +390,13 @@ export interface YoutubePhrase {
   count: number
 }
 
+export interface YoutubeChannelTypeStat {
+  channelType: YoutubeChannelType
+  label: string                  // "✓ 공식 (Netflix·방송사)" / "🎤 인플루언서 (리뷰어)"
+  count: number
+  totalViews: number
+}
+
 export interface YoutubeSummary {
   fetchedAt: string
   cached: boolean
@@ -400,6 +410,9 @@ export interface YoutubeSummary {
 
   // 2. 콘텐츠 유형 분포
   contentTypeStats: YoutubeContentTypeStat[]
+
+  // 2-2. 채널 타입 분포 (공식 vs 인플루언서)
+  channelTypeStats: YoutubeChannelTypeStat[]
 
   // 3. 발화 내용 (제목·설명에서 반복 phrase)
   topPhrases: YoutubePhrase[]

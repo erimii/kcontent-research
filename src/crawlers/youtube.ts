@@ -5,17 +5,50 @@
 
 import type { YoutubeVideo, YoutubeComment } from '../types/index.js'
 
-// 검색 해시태그 (사용자 명세)
-const HASHTAGS = ['#kdrama', '#kdramamemes', '#koreanactor', '#koreanculture', '#kpop', '#koreandrama']
-
-// 공식 채널 패턴 (verified or 알려진 K-콘텐츠 공식 계정)
-const OFFICIAL_PATTERNS = [
-  /\bnetflix\b/i, /\bkocowa\b/i, /\bviki\b/i, /\bcjenm\b/i, /\bkbs\b/i, /\bsbs\b/i,
-  /\bmbc\b/i, /\btvn\b/i, /\bjtbc\b/i, /\bdisney\+?\b/i, /\bpr?ime video\b/i,
-  /\bhybe\b/i, /\bsm entertainment\b/i, /\byg entertainment\b/i, /\bjyp\b/i,
-  /\bsony pictures\b/i, /\bsony animation\b/i, /\bwarner\b/i, /\buniversal\b/i,
-  /\bkocca\b/i, /\bkpop entertainment\b/i, /\bofficial\b/i,
+// 검색 해시태그 — 공식·드라마 리뷰 영상 잘 노출되는 태그 위주로 확장
+const HASHTAGS = [
+  '#kdrama', '#koreandrama', '#netflixkdrama',
+  '#kdramareview', '#kdramarecap', '#kdramareaction',
+  '#koreanactor', '#kdramaclip', '#kdramashorts',
+  '#kpop',
 ]
+
+// ── 공식 채널 패턴 (Netflix/방송사/엔터사) ─────────────
+const OFFICIAL_PATTERNS = [
+  // OTT
+  /\bnetflix\b/i, /\bnetflix korea\b/i, /\bnetflix asia\b/i, /\bnetflix k-content\b/i,
+  /the swoon/i,  // Netflix K-콘텐츠 BTS 공식 채널
+  /\bkocowa\b/i, /\bviki\b/i, /\bdisney\+?\b/i, /\bpr?ime video\b/i,
+  /\bhbo\b/i, /\bapple tv\+?\b/i, /\bhulu\b/i, /\bparamount\+?\b/i,
+  // 한국 방송사
+  /\bkbs\b/i, /\bsbs\b/i, /\bmbc\b/i, /\btvn\b/i, /\bjtbc\b/i, /\bena\b/i, /\bocn\b/i,
+  /\bcjenm\b/i, /\bcj enm\b/i, /\bstudio dragon\b/i,
+  // K-pop 엔터사
+  /\bhybe\b/i, /\bsm entertainment\b/i, /\byg entertainment\b/i, /\bjyp\b/i,
+  /\bstone music\b/i, /\bbighit\b/i, /\bsource music\b/i, /\bbelift\b/i,
+  // 영화·미디어
+  /\bsony pictures\b/i, /\bsony animation\b/i, /\bwarner\b/i, /\buniversal\b/i,
+  /\bkocca\b/i, /\bkpop entertainment\b/i,
+  // (이전 generic /\bofficial\b/ 제거 — cover band 등 자칭 official 채널 오탐 방지)
+]
+
+// ── K-드라마/K-콘텐츠 인플루언서 채널 패턴 ──────────────
+const INFLUENCER_PATTERNS = [
+  /the daebak (show|company)/i, /\bdkdktv\b/i, /\bsoompi\b/i,
+  /marli ray/i, /avenue x/i, /cinema jenny/i, /the kdrama (queen|critic)/i,
+  /joan day/i, /the k2 critic/i, /sunny stories/i, /korean dramaland/i,
+  /dramamilk/i, /asianwiki/i, /viu/i, /spoiler-free reviews/i,
+  /\bkdrama\b.*?(reviews?|recaps?|reactions?|breakdown|recommend)/i,
+  /(reviews?|recaps?|reactions?|recommend).*?\bkdrama\b/i,
+  /korean? dramas? (review|recap|reaction)/i,
+  /\bkpop (insider|now|news)\b/i,
+]
+
+function classifyChannelType(channel: string): 'official' | 'influencer' | 'community' {
+  if (OFFICIAL_PATTERNS.some((re) => re.test(channel))) return 'official'
+  if (INFLUENCER_PATTERNS.some((re) => re.test(channel))) return 'influencer'
+  return 'community'
+}
 
 function viewsToNumber(s: string): number {
   if (!s) return 0
@@ -41,14 +74,16 @@ function classifyContentType(title: string, description: string = ''): YoutubeVi
   return 'other'
 }
 
+// (호환용) channelType === 'official' 인지 빠른 검사
 function isOfficialChannel(channel: string): boolean {
-  return OFFICIAL_PATTERNS.some((re) => re.test(channel))
+  return classifyChannelType(channel) === 'official'
 }
 
 // ── 단일 해시태그 검색 → 영상 메타 추출 ─────────────────────
 async function searchHashtag(yt: any, tag: string, limit: number): Promise<Partial<YoutubeVideo>[]> {
   try {
-    const res = await yt.search(tag, { type: 'video', sort_by: 'view_count' })
+    // upload_date: 'month' = 최근 1개월 업로드 영상만 (트렌드성 + 인기도 균형)
+    const res = await yt.search(tag, { type: 'video', sort_by: 'view_count', upload_date: 'month' })
     const out: Partial<YoutubeVideo>[] = []
     for (const v of res.results || []) {
       if (!v?.id) continue
@@ -120,6 +155,7 @@ async function fetchVideoDetail(yt: any, video: Partial<YoutubeVideo>, maxCommen
       description: description.slice(0, 1500),
       hashtag: video.hashtag || '',
       contentType: classifyContentType(title, description),
+      channelType: classifyChannelType(channel),
       isOfficial: isOfficialChannel(channel),
       comments,
     }
@@ -135,7 +171,7 @@ export async function crawlYoutubeBuzz(
 ): Promise<{ videos: YoutubeVideo[]; searchedHashtags: string[] }> {
   const {
     hashtags = HASHTAGS,
-    perTagLimit = 12,
+    perTagLimit = 20,
     topN = 30,
     commentsPerVideo = 30,
   } = options
@@ -164,8 +200,17 @@ export async function crawlYoutubeBuzz(
   const dedup = [...merged.values()]
   console.log(`  [YouTube] dedup 후 ${dedup.length}개 유니크 영상`)
 
+  // community 영상 제외 — official + influencer만 유지
+  const filtered = dedup.filter((v) => {
+    const t = classifyChannelType(v.channel || '')
+    return t === 'official' || t === 'influencer'
+  })
+  const officialN = filtered.filter((v) => classifyChannelType(v.channel || '') === 'official').length
+  const influencerN = filtered.length - officialN
+  console.log(`  [YouTube] 채널 필터링 후 ${filtered.length}개 (공식 ${officialN} · 인플루언서 ${influencerN})`)
+
   // views 정렬 후 상위 N개에 대해 댓글 수집
-  const candidates = dedup.sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, topN)
+  const candidates = filtered.sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, topN)
   console.log(`  [YouTube] 상위 ${candidates.length}개 영상 댓글 수집 중...`)
 
   const videos: YoutubeVideo[] = []

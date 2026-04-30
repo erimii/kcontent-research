@@ -9,10 +9,18 @@ import type {
   YoutubeSummary,
   YoutubeContentType,
   YoutubeContentTypeStat,
+  YoutubeChannelTypeStat,
+  YoutubeChannelType,
   YoutubeReactionPattern,
   YoutubePhrase,
 } from '../types/index.js'
 import { crawlYoutubeBuzz } from '../crawlers/youtube.js'
+
+const CHANNEL_TYPE_LABEL: Record<YoutubeChannelType, string> = {
+  official: '✓ 공식 (Netflix·방송사·엔터사)',
+  influencer: '🎤 K-드라마 인플루언서',
+  community: '🌐 일반 사용자',
+}
 
 const CONTENT_TYPE_LABEL: Record<YoutubeContentType, string> = {
   scene: '🎬 명장면 클립',
@@ -78,6 +86,20 @@ function getTopVideos(videos: YoutubeVideo[], n: number): YoutubeVideo[] {
 }
 
 // ── 2. 콘텐츠 유형 분포 ─────────────────────────────────────
+// ── 2-2. 채널 타입 분포 ─────────────────────────────────────
+function buildChannelTypeStats(videos: YoutubeVideo[]): YoutubeChannelTypeStat[] {
+  const m = new Map<YoutubeChannelType, { count: number; totalViews: number }>()
+  for (const v of videos) {
+    const ex = m.get(v.channelType) ?? { count: 0, totalViews: 0 }
+    ex.count++
+    ex.totalViews += v.views || 0
+    m.set(v.channelType, ex)
+  }
+  return [...m.entries()]
+    .map(([t, v]) => ({ channelType: t, label: CHANNEL_TYPE_LABEL[t], count: v.count, totalViews: v.totalViews }))
+    .sort((a, b) => b.count - a.count)
+}
+
 function buildContentTypeStats(videos: YoutubeVideo[]): YoutubeContentTypeStat[] {
   const m = new Map<YoutubeContentType, { count: number; totalViews: number }>()
   for (const v of videos) {
@@ -163,12 +185,11 @@ function buildBuzzInsight(videos: YoutubeVideo[], stats: YoutubeContentTypeStat[
 
 function buildFandomFlowInsight(videos: YoutubeVideo[], stats: YoutubeContentTypeStat[]): string {
   const total = videos.length || 1
-  const officialCount = videos.filter((v) => v.isOfficial).length
+  const officialCount = videos.filter((v) => v.channelType === 'official').length
+  const influencerCount = videos.filter((v) => v.channelType === 'influencer').length
   const officialRatio = officialCount / total
+  const influencerRatio = influencerCount / total
 
-  // 댓글 다수 = 외부 확산 신호
-  const avgComments = videos.reduce((s, v) => s + v.comments.length, 0) / total
-  // 조회수 큰 영상의 댓글 비율
   const topVideos = videos.slice(0, 5)
   const topAvgViews = topVideos.reduce((s, v) => s + (v.views || 0), 0) / Math.max(topVideos.length, 1)
 
@@ -176,13 +197,20 @@ function buildFandomFlowInsight(videos: YoutubeVideo[], stats: YoutubeContentTyp
     + (stats.find((s) => s.type === 'edit')?.count || 0)) / total
 
   const parts: string[] = []
-  if (officialRatio >= 0.4) parts.push(`공식 채널(Netflix·KOCOWA·HYBE 등) 영상 비율이 ${Math.round(officialRatio * 100)}%로 메인스트림 노출이 강하고`)
-  else if (officialRatio < 0.1) parts.push(`팬 제작 콘텐츠 비율이 압도적(${Math.round((1 - officialRatio) * 100)}%)으로 **자생적 팬덤 확산**이 주도하고 있고`)
-  else parts.push(`공식 ${Math.round(officialRatio * 100)}% · 팬 제작 ${Math.round((1 - officialRatio) * 100)}%로 양쪽이 균형을 이루며`)
+  if (officialRatio >= 0.7) {
+    parts.push(`공식 채널(Netflix·방송사·엔터사) 영상이 ${Math.round(officialRatio * 100)}%로 절대 다수 — **공식 마케팅 주도형 확산** 양상`)
+  } else if (officialRatio >= 0.4) {
+    parts.push(`공식 ${Math.round(officialRatio * 100)}% · 인플루언서 ${Math.round(influencerRatio * 100)}%로 균형 — **공식 발신 + 리뷰어 증폭** 이상적 확산 구조`)
+  } else if (influencerRatio >= 0.5) {
+    parts.push(`인플루언서·리뷰어 채널 비중이 ${Math.round(influencerRatio * 100)}%로 우세 — **팬 큐레이션 매개 확산** (오피니언 리더 중심)`)
+  } else {
+    parts.push(`공식 ${Math.round(officialRatio * 100)}% · 인플루언서 ${Math.round(influencerRatio * 100)}%로 분산`)
+  }
 
-  if (memeRatio >= 0.25) parts.push(`밈·편집 영상이 ${Math.round(memeRatio * 100)}%로 **팬덤 내부 → 일반 시청자 확산** 단계에 진입한 것으로 보입니다`)
-  else if (topAvgViews >= 1_000_000) parts.push(`상위 영상 평균 조회수가 ${(topAvgViews / 1_000_000).toFixed(1)}M으로 **메인스트림 진입**이 확인됩니다`)
-  else parts.push(`아직 K-팬덤 핵심층 중심의 소비 단계에 머물러 있습니다`)
+  if (memeRatio >= 0.25) parts.push(`밈·편집 영상 ${Math.round(memeRatio * 100)}%로 **팬덤 내부 → 일반 시청자 확산** 단계 진입`)
+  else if (topAvgViews >= 10_000_000) parts.push(`상위 영상 평균 조회수 ${(topAvgViews / 1_000_000).toFixed(1)}M으로 **메인스트림 진입** 확인`)
+  else if (topAvgViews >= 1_000_000) parts.push(`상위 영상 평균 ${(topAvgViews / 1_000_000).toFixed(1)}M 조회수로 일정 규모 도달`)
+  else parts.push(`아직 K-팬덤 핵심층 중심의 소비 단계`)
 
   return parts.join(', ') + '.'
 }
@@ -201,6 +229,7 @@ export async function buildYoutubeSummary(
   const totalComments = videos.reduce((s, v) => s + v.comments.length, 0)
   const topVideos = getTopVideos(videos, 30)
   const contentTypeStats = buildContentTypeStats(videos)
+  const channelTypeStats = buildChannelTypeStats(videos)
   const topPhrases = buildTopPhrases(videos, 20)
   const reactionPatterns = buildReactionPatterns(videos)
 
@@ -218,6 +247,7 @@ export async function buildYoutubeSummary(
     searchedHashtags,
     topVideos,
     contentTypeStats,
+    channelTypeStats,
     topPhrases,
     reactionPatterns,
     buzzInsight,

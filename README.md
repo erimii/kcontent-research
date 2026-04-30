@@ -147,13 +147,17 @@ TOP5 포스트마다:
 
 **별도 파이프라인** ([src/crawlers/youtube.ts](src/crawlers/youtube.ts) + [src/pipeline/youtubeAnalysis.ts](src/pipeline/youtubeAnalysis.ts))
 
-- **수집**: `youtubei.js` Innertube로 6개 해시태그(#kdrama #kdramamemes #koreanactor #koreanculture #kpop #koreandrama) 검색 → 영상 30개 + 각 댓글 30개 (~9초)
-- **콘텐츠 유형 분류**: scene / meme / edit / reaction / review / actor / other
-- **공식 채널 식별**: Netflix·KOCOWA·HYBE·SM·JYP·YG·Sony Pictures·Disney+ 등
+- **수집**: `youtubei.js` Innertube로 10개 해시태그 (#kdrama #koreandrama #netflixkdrama #kdramareview #kdramarecap #kdramareaction #koreanactor #kdramaclip #kdramashorts #kpop) 검색 → 영상 30개 + 각 댓글 30개 (~10초)
+- **시간 필터**: `upload_date: 'month'` — 최근 1개월 내 업로드 영상만 (트렌드성 유지)
+- **채널 타입 자동 분류** (3단계, **community는 결과에서 제외**):
+  - **official** (✓ 공식): Netflix Korea·Asia·K-Content, The Swoon, Viki, KOCOWA, Disney+, HBO, tvN, JTBC, KBS, SBS, MBC, ENA, OCN, CJ ENM, Studio Dragon, HYBE, SM, JYP, YG, Sony Pictures 등
+  - **influencer** (🎤 K-드라마 리뷰어): The Daebak Show, DKDKTV, Soompi, Marli Ray, Avenue X, Cinema Jenny, Kdrama English Recap 등 + `kdrama review|recap|reaction` 정규식
+  - **community** (일반 사용자): 위 둘에 안 잡히면 자동 제외
+- **콘텐츠 유형 분류**: scene (MV/명장면/트레일러 흡수) / meme / edit / reaction / review / actor / other
 - **댓글 반응 패턴**: 10개 카테고리 (감정 폭발 OMG / 눈물 / 이모지 / 몰입·중독 / 정보 요청 / 공감 relatable / 최고 평가 masterpiece / 비판 / 재시청 / 추천)
 - **자연어 인사이트 2종**:
   - 버즈 흐름: "리뷰·추천(N건)으로 토론 → 명장면·반응(M건)으로 밈화 직전 → 밈·편집(K건)으로 확산" 자동 추적
-  - 팬덤 → 외부 확산: 공식·팬 제작 비율 + 상위 영상 평균 조회수로 메인스트림 진입 단계 판정
+  - 팬덤 → 외부 확산: 공식 vs 인플루언서 비중 4단계 분기 (공식 ≥70% → 마케팅 주도형 / 균형 → 공식+리뷰어 증폭 / 인플루언서 ≥50% → 큐레이션 매개 / 그 외 → 분산)
 - **캐시**: `mdl_cache` 테이블 (key `youtube_buzz_v1`), TTL **3시간**
 
 ---
