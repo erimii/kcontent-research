@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "k-content-dashboard",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3366
+    },
+    {
+      "name": "crawler-server",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["crawler-server.cjs"],
+      "port": 3001
+    }
+  ]
+}

@@ -201,29 +201,65 @@ function renderKoreanInsights(r) {
   const list = r.koreanInsights || []
   if (list.length === 0) return ''
   const fs = r.filterStats
+  const meta = r.redditCrawlMeta
+  const subList = (r.subredditInsights || []).map(s => `r/${s.subreddit}`).join(' · ')
+    || 'r/kdramas · r/kdrama · r/kdramarecommends · r/korean'
+  const cutoffLabel = meta ? meta.cutoffLabel : '7d'
+  const cutoffWarn = meta && meta.fallbackUsed
+    ? `<span style="color:#f59e0b;margin-left:4px">⚠ 표본 부족으로 ${escHtml(meta.cutoffLabel)} fallback</span>`
+    : ''
+  const deepCount = (r.deepAnalysis || []).length
+  const deepCommentSum = (r.deepAnalysis || []).reduce((s, d) => s + (d.commentCount || 0), 0)
+
   const filterChip = fs
     ? `<span style="font-size:11px;color:var(--text-muted)">필터링 ${fs.before}→${fs.after} (광고 ${fs.removed.promotional}·짧음 ${fs.removed.tooShort}·중복 ${fs.removed.duplicate})</span>`
     : ''
+
   return `
     <div class="card" style="border-left:3px solid #ec4899">
       <div class="card-header">
         <div class="card-title"><i class="fas fa-brain" style="color:#ec4899"></i> 한국어 핵심 인사이트</div>
         ${filterChip}
       </div>
-      <div class="card-body" style="display:flex;flex-direction:column;gap:10px">
+      <div style="font-size:11px;color:var(--text-muted);line-height:1.55;padding:0 14px 12px">
+        📡 출처: Reddit ${escHtml(subList)} · hot+new+top+controversial RSS · 최근 <strong style="color:var(--text-primary)">${escHtml(cutoffLabel)}</strong>${cutoffWarn} ·
+        포스트 <strong style="color:var(--text-primary)">${fs?.after || 0}개</strong> 분석${fs ? ` (수집 ${fs.before} → 필터 후 ${fs.after})` : ''}${
+          deepCount > 0
+            ? ` · 그중 댓글 많은 TOP ${deepCount}개 (댓글 ${deepCommentSum}개) 딥분석`
+            : ''
+        }
+      </div>
+      <div class="card-body" style="display:flex;flex-direction:column;gap:0;padding-top:0">
         ${collapsibleSection('kr-insights', list, 3, ins => {
-          const meta = KR_INSIGHT_META[ins.category] || { icon: '✨', label: '인사이트', color: '#888' }
-          return `
-            <div style="display:flex;gap:12px;padding:12px 14px;background:rgba(255,255,255,0.02);border-radius:8px;border-left:3px solid ${meta.color};margin-bottom:10px">
-              <div style="font-size:20px;line-height:1.4">${meta.icon}</div>
-              <div style="flex:1;min-width:0">
-                <div style="font-size:11px;color:${meta.color};text-transform:uppercase;font-weight:700;margin-bottom:4px">${meta.label}</div>
-                <div style="font-size:14px;line-height:1.55;color:var(--text-primary)">${escHtml(ins.text)}</div>
-                ${(ins.evidence && ins.evidence.length) ? `
-                  <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">
-                    ${ins.evidence.slice(0,4).map(e => `<span class="insight-chip" style="font-size:10px">${escHtml(e)}</span>`).join('')}
-                  </div>` : ''}
+          const m = KR_INSIGHT_META[ins.category] || { icon: '✨', label: '인사이트', color: '#888' }
+          const hasStructured = !!(ins.observation && ins.interpretation && ins.action)
+          const sections = hasStructured
+            ? `
+              <div style="margin-bottom:10px">
+                <div style="font-size:11px;color:${m.color};font-weight:700;margin-bottom:4px;letter-spacing:0.2px">📌 핵심 인사이트</div>
+                <div style="font-size:13.5px;line-height:1.6;color:var(--text-primary)">${escHtml(ins.observation)}</div>
               </div>
+              <div style="margin-bottom:10px">
+                <div style="font-size:11px;color:var(--text-muted);font-weight:700;margin-bottom:4px;letter-spacing:0.2px">🔍 해석</div>
+                <div style="font-size:13.5px;line-height:1.6;color:var(--text-secondary,#d4d6e0)">${escHtml(ins.interpretation)}</div>
+              </div>
+              <div style="background:rgba(255,255,255,0.04);border-left:2px solid ${m.color};border-radius:5px;padding:10px 12px">
+                <div style="font-size:11px;color:${m.color};font-weight:700;margin-bottom:4px;letter-spacing:0.2px">💡 액션 제안 (Claude의 의견)</div>
+                <div style="font-size:13.5px;line-height:1.65;color:var(--text-primary)">${escHtml(ins.action)}</div>
+              </div>
+            `
+            : `<div style="font-size:14px;line-height:1.55;color:var(--text-primary)">${escHtml(ins.text)}</div>`
+          return `
+            <div style="padding:14px 16px;background:rgba(255,255,255,0.02);border-radius:8px;border-left:3px solid ${m.color};margin-bottom:12px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.06)">
+                <span style="font-size:18px">${m.icon}</span>
+                <span style="font-size:12px;color:${m.color};text-transform:uppercase;font-weight:700;letter-spacing:0.4px">${m.label}</span>
+              </div>
+              ${sections}
+              ${(ins.evidence && ins.evidence.length) ? `
+                <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px">
+                  ${ins.evidence.slice(0,4).map(e => `<span class="insight-chip" style="font-size:10px">${escHtml(e)}</span>`).join('')}
+                </div>` : ''}
             </div>`
         })}
       </div>
@@ -244,19 +280,25 @@ function renderTrends(r) {
       <div class="card-body" style="padding:14px;display:grid;grid-template-columns:1fr 1fr 2fr;gap:18px">
         <div>
           <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:6px">📺 콘텐츠 TOP</div>
-          ${(c.topContents || []).slice(0,8).map(it => `
-            <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
-              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(it.title)}</span>
-              <span style="color:var(--text-muted)">${it.count}</span>
-            </div>`).join('') || '<div style="font-size:11px;color:var(--text-muted)">없음</div>'}
+          ${(c.topContents || []).slice(0,8).map(it => {
+            const ko = (window.K_DRAMA_TITLE_MAP || {})[String(it.title).toLowerCase().trim().replace(/\s+/g, ' ')]
+            return `
+            <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);gap:8px">
+              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${escHtml(it.title)}${ko ? ` <span style="color:var(--text-muted);font-size:11px">(${escHtml(ko)})</span>` : ''}</span>
+              <span style="color:var(--text-muted);flex-shrink:0">${it.count}</span>
+            </div>`
+          }).join('') || '<div style="font-size:11px;color:var(--text-muted)">없음</div>'}
         </div>
         <div>
           <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:6px">🌟 배우 TOP</div>
-          ${(c.topActors || []).length ? c.topActors.slice(0,8).map(a => `
-            <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
-              <span>${escHtml(a.name)}</span>
-              <span style="color:var(--text-muted)">${a.count}</span>
-            </div>`).join('') : '<div style="font-size:11px;color:var(--text-muted)">없음</div>'}
+          ${(c.topActors || []).length ? c.topActors.slice(0,8).map(a => {
+            const ko = (window.K_ACTOR_NAME_MAP || {})[String(a.name).toLowerCase().trim().replace(/\s+/g, ' ')]
+            return `
+            <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);gap:8px">
+              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${escHtml(a.name)}${ko ? ` <span style="color:var(--text-muted);font-size:11px">(${escHtml(ko)})</span>` : ''}</span>
+              <span style="color:var(--text-muted);flex-shrink:0">${a.count}</span>
+            </div>`
+          }).join('') : '<div style="font-size:11px;color:var(--text-muted)">없음</div>'}
         </div>
         <div>
           <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:6px">🔤 키워드 TOP</div>
@@ -947,12 +989,17 @@ function renderCommentDebates(debates) {
               ${(d.representatives && d.representatives.length) ? `
                 <div style="margin:6px 0">
                   <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:3px">주요 의견</div>
-                  ${d.representatives.map(r => `
+                  ${d.representatives.map(r => {
+                    const display = r.bodyKo || r.body
+                    const original = r.bodyKo && r.bodyKo !== r.body ? r.body : null
+                    return `
                     <div style="font-size:11px;padding:5px 9px;background:rgba(255,255,255,0.025);border-left:2px solid ${SENT_COLOR[r.sentiment]};margin-bottom:3px;border-radius:3px;line-height:1.5">
                       <span style="margin-right:5px">${SENT_ICON[r.sentiment]}</span>
-                      "${escHtml(r.body)}"
+                      "${escHtml(display)}"
                       <span style="float:right;color:var(--text-muted);font-size:10px">▲${r.score}</span>
-                    </div>`).join('')}
+                      ${original ? `<div style="font-size:10px;color:var(--text-muted);margin-top:3px;font-style:italic;opacity:0.7">↳ ${escHtml(original)}</div>` : ''}
+                    </div>`
+                  }).join('')}
                 </div>` : ''}
 
               <div style="font-size:11px;color:#fbbf24;line-height:1.5;padding:6px 9px;background:rgba(251,191,36,0.06);border-radius:3px;margin-top:6px">
@@ -967,11 +1014,15 @@ function renderCommentDebates(debates) {
 function renderDeepAnalysis(r) {
   const list = r.deepAnalysis || []
   if (list.length === 0) return ''
+  const totalComments = list.reduce((s, d) => s + (d.commentCount || 0), 0)
   return `
     <div class="card">
       <div class="card-header">
-        <div class="card-title"><i class="fas fa-microscope" style="color:#8b5cf6"></i> TOP5 딥 분석</div>
-        <span style="font-size:11px;color:var(--text-muted)">감정·의견 유형·반응 원인</span>
+        <div class="card-title"><i class="fas fa-microscope" style="color:#8b5cf6"></i> Reddit TOP5 포스트 댓글 딥분석</div>
+        <span style="font-size:11px;color:var(--text-muted)">감정·의견 유형·쟁점 클러스터</span>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);line-height:1.55;padding:0 14px 12px">
+        📡 출처: Reddit 토론 TOP 5 포스트 · 댓글 합계 <strong style="color:var(--text-primary)">${totalComments}개</strong> 분석 · 포스트당 댓글 RSS에서 본문 길이 ≥20자 댓글 수집 후 감정/의견/쟁점 클러스터링
       </div>
       <div class="card-body" style="padding:0 12px 8px">
         ${collapsibleSection('deep-analysis', list.map((d, i) => ({ d, i })), 2, ({ d, i }) => {
@@ -984,18 +1035,12 @@ function renderDeepAnalysis(r) {
               <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:6px">
                 <div style="font-weight:600;flex:1;min-width:0">
                   <span style="color:#8b5cf6;margin-right:6px">#${i+1}</span>
-                  <a href="${d.url}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none">${escHtml(d.title)}</a>
+                  <a href="${d.url}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none">${escHtml(d.titleKo || d.title)}</a>
+                  ${d.titleKo && d.titleKo !== d.title ? `<div style="font-size:11px;color:var(--text-muted);font-weight:400;margin-top:2px">${escHtml(d.title)}</div>` : ''}
                 </div>
                 <div style="font-size:11px;color:var(--text-muted);white-space:nowrap">r/${d.subreddit} · 💬${d.commentCount}</div>
               </div>
               <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;line-height:1.5">${escHtml(d.summary)}</div>
-
-              <!-- 인기 사유 (자연어) -->
-              ${d.popularityReason ? `
-                <div style="padding:10px 12px;background:rgba(139,92,246,0.08);border-left:3px solid #8b5cf6;border-radius:4px;margin-bottom:10px;font-size:12px;line-height:1.6">
-                  <div style="font-size:10px;color:#a78bfa;text-transform:uppercase;font-weight:700;margin-bottom:4px">🎯 인기 사유</div>
-                  ${escHtml(d.popularityReason)}
-                </div>` : ''}
 
               <!-- 댓글 감정 자연어 요약 -->
               ${d.sentimentSummary ? `
@@ -1029,12 +1074,17 @@ function renderDeepAnalysis(r) {
               ${(d.topComments && d.topComments.length) ? `
                 <div style="margin-top:8px">
                   <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">대표 댓글</div>
-                  ${d.topComments.map(c => `
+                  ${d.topComments.map(c => {
+                    const display = c.bodyKo || c.body
+                    const original = c.bodyKo && c.bodyKo !== c.body ? c.body : null
+                    return `
                     <div style="font-size:11px;padding:6px 10px;background:rgba(255,255,255,0.02);border-left:2px solid #8b5cf6;margin-bottom:4px;border-radius:3px;line-height:1.5">
                       <i class="fas fa-quote-left" style="font-size:8px;opacity:0.4;margin-right:4px"></i>
-                      ${escHtml(c.body.slice(0, 200))}${c.body.length > 200 ? '…' : ''}
+                      ${escHtml(display.slice(0, 220))}${display.length > 220 ? '…' : ''}
                       <span style="float:right;color:var(--text-muted);font-size:10px">▲${c.score}</span>
-                    </div>`).join('')}
+                      ${original ? `<div style="font-size:10px;color:var(--text-muted);margin-top:3px;font-style:italic;opacity:0.7">↳ ${escHtml(original.slice(0, 200))}${original.length > 200 ? '…' : ''}</div>` : ''}
+                    </div>`
+                  }).join('')}
                 </div>` : ''}
             </div>`
         })}

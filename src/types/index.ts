@@ -18,6 +18,7 @@ export interface RedditPost {
 export interface RedditComment {
   id: string
   body: string
+  bodyKo?: string                // 한국어 번역 (Groq AI)
   score: number
   depth: number
 }
@@ -93,6 +94,11 @@ export interface RankedReport {
   subredditInsights?: SubredditInsight[]
   deepAnalysis?: DeepAnalysis[]
   koreanInsights?: KoreanInsight[]
+  redditCrawlMeta?: {
+    cutoffLabel: string                          // "24h" | "48h" | "7d"
+    fallbackUsed: boolean
+    rawCounts: { '24h': number; '48h': number; '7d': number }
+  }
 }
 
 export interface PipelineInput {
@@ -175,6 +181,7 @@ export type DebateOpinionDirection = 'positive' | 'negative' | 'mixed' | 'discus
 
 export interface DebateRepresentative {
   body: string
+  bodyKo?: string                // 한국어 번역 (Groq AI)
   score: number
   sentiment: 'positive' | 'negative' | 'neutral'
 }
@@ -193,6 +200,7 @@ export interface DebateTopic {
 export interface DeepAnalysis {
   postId: string
   title: string
+  titleKo?: string               // 한국어 번역 (Groq AI)
   url: string
   subreddit: string
   score: number
@@ -209,7 +217,10 @@ export interface DeepAnalysis {
 
 export interface KoreanInsight {
   category: 'trend_summary' | 'fan_reaction' | 'consumption_pattern' | 'expansion' | 'subreddit'
-  text: string
+  text: string                  // 호환용 — observation + interpretation + action 합본
+  observation?: string          // [핵심 인사이트] 데이터 기반 관찰
+  interpretation?: string       // [해석] 사용자/행동 관점
+  action?: string               // [💡 액션 제안] 앱 기능/UX 개선
   evidence?: string[]
 }
 

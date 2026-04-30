@@ -72,6 +72,13 @@ export function initDb() {
       fetched_at TEXT NOT NULL,
       expires_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS translation_cache (
+      hash TEXT PRIMARY KEY,
+      source_text TEXT NOT NULL,
+      translation TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
   `)
   console.log(`[DB] 초기화 완료: ${DB_PATH}`)
 }
@@ -195,4 +202,20 @@ export function searchSnapshots(q: string, kOnly: boolean, limit = 30) {
     ? `SELECT * FROM content_snapshots WHERE title LIKE ? AND is_k_content = 1 ORDER BY final_score DESC LIMIT ?`
     : `SELECT * FROM content_snapshots WHERE title LIKE ? ORDER BY final_score DESC LIMIT ?`
   return db.prepare(query).all(`%${q}%`, limit)
+}
+
+// ============================================================
+// 번역 캐시 (영문 → 한국어, 영구 보관)
+// ============================================================
+export function getTranslationCached(hash: string): string | null {
+  const row = db.prepare(`SELECT translation FROM translation_cache WHERE hash = ?`).get(hash) as
+    | { translation: string }
+    | undefined
+  return row?.translation ?? null
+}
+
+export function setTranslationCached(hash: string, sourceText: string, translation: string) {
+  db.prepare(
+    `INSERT OR REPLACE INTO translation_cache (hash, source_text, translation, created_at) VALUES (?, ?, ?, ?)`
+  ).run(hash, sourceText, translation, new Date().toISOString())
 }
