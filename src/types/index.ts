@@ -105,6 +105,7 @@ export interface PipelineInput {
   redditPosts?: RedditPost[]
   reportType?: ReportType
   filterOptions?: FilterOptions
+  extraKnownDramaTitles?: string[]   // MDL 현재 방영작 등 동적 매칭 추가 (analyzeContentTrend로 전달)
 }
 
 // ============================================================
@@ -245,11 +246,13 @@ export interface MdlReview {
   daysAgo?: string
   title?: string
   body: string
+  bodyKo?: string                // 한국어 번역 (Groq AI)
 }
 
 export interface MdlDrama {
   slug: string
   title: string
+  nativeTitle?: string           // 한국어 원제 (예: "21세기 대군부인")
   url: string
   rating: number
   posterUrl?: string
@@ -263,6 +266,7 @@ export interface MdlDramaAnalysis {
   drama: {
     slug: string
     title: string
+    nativeTitle?: string
     url: string
     rating: number
     posterUrl?: string
@@ -289,7 +293,7 @@ export interface MdlDramaAnalysis {
   }
   reviewDebates: DebateTopic[]
   popularityReason: string
-  representativeReviews: { username: string; rating: number; helpful: number; body: string; sentiment: 'positive' | 'negative' | 'neutral' }[]
+  representativeReviews: { username: string; rating: number; helpful: number; body: string; bodyKo?: string; sentiment: 'positive' | 'negative' | 'neutral' }[]
   polarized: boolean             // 평가 분열 (평점 vs 리뷰 톤 불일치)
   polarizedReason?: string       // 분열로 판정된 이유 (UI 툴팁용)
 }

@@ -81,15 +81,10 @@ async function fetchTopKoreanDramas(page: Page, topN: number): Promise<Pick<MdlD
   }, { topN, base: BASE_URL })
 }
 
-// ── 단일 드라마 리뷰 추출 ──────────────────────────────────
-async function fetchDramaReviews(page: Page, dramaUrl: string, max: number): Promise<MdlReview[]> {
-  const reviewsUrl = dramaUrl.replace(/\/$/, '') + '/reviews'
-  await page.goto(reviewsUrl, { waitUntil: 'domcontentloaded', timeout: 60000 })
-  await waitForCloudflareIfNeeded(page)
-  await page.waitForSelector('.review', { timeout: 20000 }).catch(() => {})
-
-  return page.evaluate((max) => {
-    const items = Array.from(document.querySelectorAll('.review')).slice(0, max)
+// ── 단일 페이지 리뷰 파싱 (page.evaluate 본체 — Playwright tsx 호환을 위해 화살표 함수 사용 X) ──
+async function parseReviewPage(page: Page): Promise<MdlReview[]> {
+  return page.evaluate(() => {
+    const items = Array.from(document.querySelectorAll('.review'))
     const out: any[] = []
     for (let i = 0; i < items.length; i++) {
       const r = items[i]
@@ -138,7 +133,77 @@ async function fetchDramaReviews(page: Page, dramaUrl: string, max: number): Pro
       })
     }
     return out
-  }, max)
+  })
+}
+
+// ── Native Title 추출 (한국어 원제) ──
+async function extractNativeTitle(page: Page): Promise<string | undefined> {
+  return page.evaluate(() => {
+    const lis = Array.from(document.querySelectorAll('.list-item'))
+    for (let i = 0; i < lis.length; i++) {
+      const li = lis[i]
+      const b = li.querySelector('b')
+      const label = b && b.textContent ? b.textContent.trim() : ''
+      if (/^Native Title:?$/i.test(label)) {
+        const value = (li.textContent || '').replace(label, '').trim()
+        return value || undefined
+      }
+    }
+    return undefined
+  })
+}
+
+// ── 페이지네이션 적용 리뷰 수집 (?page=N 순회, 누적, max 도달 시 종료) ──
+async function fetchDramaReviews(page: Page, dramaUrl: string, max: number): Promise<{ reviews: MdlReview[]; nativeTitle?: string }> {
+  const mainUrl = dramaUrl.replace(/\/$/, '')
+  const baseUrl = mainUrl + '/reviews'
+  const seenSig = new Set<string>()
+  const all: MdlReview[] = []
+  let nativeTitle: string | undefined
+  const MAX_PAGES = 12  // 안전 cap (페이지당 5개 가정 시 60개)
+
+  // STEP 0: 메인 drama 페이지에서 nativeTitle 추출 (사이드바 메타데이터)
+  // /reviews 서브페이지에는 Native Title 필드가 없으므로 메인 페이지 별도 방문 필요
+  try {
+    await page.goto(mainUrl, { waitUntil: 'domcontentloaded', timeout: 60000 })
+    await waitForCloudflareIfNeeded(page)
+    nativeTitle = await extractNativeTitle(page)
+  } catch (e) {
+    console.warn(`  [MDL] 메인 페이지 로드 실패 (nativeTitle 누락):`, (e as Error).message)
+  }
+
+  for (let pageNum = 1; pageNum <= MAX_PAGES; pageNum++) {
+    const url = pageNum === 1 ? baseUrl : `${baseUrl}?page=${pageNum}`
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 })
+      await waitForCloudflareIfNeeded(page)
+      await page.waitForSelector('.review', { timeout: 15000 }).catch(() => {})
+    } catch (e) {
+      console.warn(`  [MDL] page=${pageNum} 로드 실패:`, (e as Error).message)
+      break
+    }
+
+    const pageReviews = await parseReviewPage(page)
+    if (pageReviews.length === 0) break  // 더 이상 리뷰 없음
+
+    let added = 0
+    for (const rev of pageReviews) {
+      // 중복 검출 (username + body 앞 80자)
+      const sig = `${rev.username}|${(rev.body || '').slice(0, 80)}`
+      if (seenSig.has(sig)) continue
+      seenSig.add(sig)
+      all.push(rev)
+      added++
+      if (all.length >= max) break
+    }
+
+    if (added === 0) break  // 같은 페이지가 반복되면 (페이지네이션 끝) 종료
+    if (all.length >= max) break
+
+    await page.waitForTimeout(800)  // 페이지 간 rate limit 보호
+  }
+
+  return { reviews: all, nativeTitle }
 }
 
 // ── 메인: top airing K-드라마 N개 + 각각 리뷰 수집 ──────────
@@ -165,9 +230,9 @@ export async function crawlMdlTopAiring(
     for (const m of meta) {
       try {
         console.log(`  [MDL] r/${m.slug} 리뷰 수집 중...`)
-        const reviews = await fetchDramaReviews(page, m.url, reviewsPerDrama)
-        console.log(`  [MDL] ${m.title}: 리뷰 ${reviews.length}개`)
-        dramas.push({ ...m, reviews } as MdlDrama)
+        const result = await fetchDramaReviews(page, m.url, reviewsPerDrama)
+        console.log(`  [MDL] ${m.title}: 리뷰 ${result.reviews.length}개${result.nativeTitle ? ` · 원제 "${result.nativeTitle}"` : ''}`)
+        dramas.push({ ...m, reviews: result.reviews, nativeTitle: result.nativeTitle } as MdlDrama)
         // rate-limit 보호
         await page.waitForTimeout(800)
       } catch (e) {

@@ -117,6 +117,9 @@ window.K_DRAMA_TITLE_MAP = {
   'a model family': '모범 가족',
   'happiness': '해피니스',
   'twinkling watermelon': '반짝이는 워터멜론',
+
+  // 2025-2026 신작
+  'doctor on the edge': '닥터 섬보이',  // 2026-06 예정
 }
 
 // 배우 매핑 — 영문(소문자) → 한국어 이름

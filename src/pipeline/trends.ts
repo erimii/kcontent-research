@@ -15,6 +15,7 @@ import type {
   BehaviorType,
   SubredditInsight,
 } from '../types/index.js'
+import { buildKnownDramaPattern } from '../data/known-dramas.js'
 
 const POS_KW = ['love', 'amazing', 'great', 'excellent', 'best', 'favorite', 'worth', 'masterpiece', 'beautiful', 'perfect', 'incredible', 'fantastic', 'awesome', 'brilliant', 'enjoy', 'recommend']
 const NEG_KW = ['hate', 'bad', 'boring', 'disappointing', 'worst', 'skip', 'drop', 'awful', 'terrible', 'cringe', 'overrated', 'flop', 'mid', 'frustrating', 'predictable']
@@ -85,18 +86,44 @@ function classifySentiment(p: RedditPost): 'positive' | 'negative' | 'neutral' {
 }
 
 // 3-1 콘텐츠 트렌드
-export function analyzeContentTrend(posts: RedditPost[]): ContentTrend {
+export function analyzeContentTrend(posts: RedditPost[], extraKnownTitles: string[] = []): ContentTrend {
   const titles = new Map<string, number>()
   const actors = new Map<string, number>()
   const keywords = new Map<string, number>()
+  const knownPattern = buildKnownDramaPattern(extraKnownTitles)
+
+  // 동일 작품을 정규형으로 통일하기 위한 lowercase → canonical 매핑
+  const canonicalMap = new Map<string, string>()
 
   for (const p of posts) {
-    // 콘텐츠 (따옴표 안 제목)
-    const text = `${p.title} ${p.selftext || ''}`
+    // title + selftext + 댓글 본문 합산 (다른 인사이트와 데이터 풀 일치)
+    // per-post dedup이 적용되어 같은 작품 폭증 방지
+    const text = `${p.title} ${p.selftext || ''} ${p.comments.map((c) => c.body).join(' ')}`
+    const seenInPost = new Set<string>()  // 포스트 단위 dedup (양쪽 매칭이 같은 작품 잡으면 1회만)
+
+    // ① 따옴표 안 제목 (기존 로직)
     for (const m of text.matchAll(TITLE_PAT)) {
       const t = m[1].trim()
       if (t.length < 2) continue
-      titles.set(t, (titles.get(t) ?? 0) + 1)
+      const key = t.toLowerCase()
+      if (seenInPost.has(key)) continue
+      seenInPost.add(key)
+      const canonical = canonicalMap.get(key) || t
+      canonicalMap.set(key, canonical)
+      titles.set(canonical, (titles.get(canonical) ?? 0) + 1)
+    }
+
+    // ② 알려진 K-드라마 사전 매칭 (따옴표 없는 자연 문장 내 언급도 캐치)
+    if (knownPattern) {
+      for (const m of text.matchAll(knownPattern)) {
+        const matched = m[1]
+        const key = matched.toLowerCase()
+        if (seenInPost.has(key)) continue
+        seenInPost.add(key)
+        const canonical = canonicalMap.get(key) || matched
+        canonicalMap.set(key, canonical)
+        titles.set(canonical, (titles.get(canonical) ?? 0) + 1)
+      }
     }
 
     // 배우 (알려진 배우 매칭)

@@ -146,7 +146,11 @@ app.post('/api/crawl', async (req, res) => {
     }
 
     log('[Pipeline] 데이터 처리 중...')
-    const report = runPipeline({ redditPosts, reportType })
+    // MDL airing 캐시에서 현재 방영작 제목을 추출해 콘텐츠 매칭에 사용
+    const mdlCacheForPipeline = getMdlCache<MdlSummary>(MDL_CACHE_KEY)
+    const extraKnownDramaTitles = mdlCacheForPipeline?.data?.dramas?.map((d: any) => d.drama?.title).filter(Boolean) || []
+    if (extraKnownDramaTitles.length > 0) log(`[Pipeline] MDL 방영작 ${extraKnownDramaTitles.length}개 매칭에 추가`)
+    const report = runPipeline({ redditPosts, reportType, extraKnownDramaTitles })
     if (redditMeta) {
       ;(report as any).redditCrawlMeta = {
         cutoffLabel: redditMeta.cutoffLabel,
@@ -390,26 +394,43 @@ app.get('/api/newsletter/:id', (req, res) => {
         </div>
       </td></tr>
 
-      <!-- 핵심 인사이트 -->
-      ${koreanInsights.length > 0 ? `
+      <!-- K-콘텐츠 트렌드 분석 (작품·배우 빈도 + 핵심 인사이트 통합) -->
+      ${(koreanInsights.length > 0 || (trends?.content && ((trends.content.topContents?.length || 0) + (trends.content.topActors?.length || 0)) > 0)) ? `
       <tr><td style="background:#fff;padding:24px 36px;border-left:1px solid #e0e4ef;border-right:1px solid #e0e4ef">
-        <div style="font-size:14px;font-weight:700;color:#1a1a2e;margin-bottom:6px;padding-bottom:8px;border-bottom:2px solid #f0f2f8">🧠 핵심 인사이트</div>
-        <div style="font-size:11px;color:#9ba3bf;line-height:1.55;margin-bottom:12px">
+        <div style="font-size:14px;font-weight:700;color:#1a1a2e;margin-bottom:6px;padding-bottom:8px;border-bottom:2px solid #f0f2f8">🔥 K-콘텐츠 트렌드 분석</div>
+        <div style="font-size:11px;color:#9ba3bf;line-height:1.55;margin-bottom:14px">
           📡 출처: Reddit ${(r.subredditInsights || []).length > 0 ? (r.subredditInsights || []).map((s: any) => `r/${escNl(s.subreddit)}`).join(' · ') : 'r/kdramas · r/kdrama · r/kdramarecommends · r/korean'} ·
           hot+new+top+controversial RSS · ${
             r.redditCrawlMeta
               ? `최근 <strong>${escNl(r.redditCrawlMeta.cutoffLabel)}</strong>${r.redditCrawlMeta.fallbackUsed ? ` <span style="color:#f59e0b">⚠ 표본 부족으로 ${escNl(r.redditCrawlMeta.cutoffLabel)} fallback</span>` : ''}`
               : '최근 7일'
           } ·
-          포스트 <strong>${r.filterStats?.after || 0}개</strong> 분석 (수집 ${r.filterStats?.before || 0} → 필터 후 ${r.filterStats?.after || 0})${
+          포스트 <strong>${r.filterStats?.after || 0}개</strong> 분석 (수집 ${r.filterStats?.before || 0} → 필터 후 ${r.filterStats?.after || 0}) · title+selftext+댓글 통합 추출${
             (r.deepAnalysis || []).length > 0
-              ? ` · 그중 댓글 많은 TOP ${(r.deepAnalysis || []).length}개 (댓글 ${(r.deepAnalysis || []).reduce((s: number, d: any) => s + (d.commentCount || 0), 0)}개) 딥분석`
+              ? ` · 그중 댓글 많은 TOP ${(r.deepAnalysis || []).length}개 (댓글 ${(r.deepAnalysis || []).reduce((s: number, d: any) => s + (d.commentCount || 0), 0)}개)도 함께 분석`
               : ''
           }
         </div>
+
+        ${trends?.content && ((trends.content.topContents?.length || 0) + (trends.content.topActors?.length || 0)) > 0 ? `
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom:14px">
+          ${(trends.content.topContents || []).slice(0, 5).length > 0 ? `
+          <tr><td style="padding:6px 0;font-size:12px;color:#3a4163;line-height:1.7">
+            <strong style="color:#8b5cf6">📺 작품 TOP ${Math.min(5, (trends.content.topContents || []).length)}</strong> ·
+            ${(trends.content.topContents || []).slice(0, 5).map((c: any) => `${escNl(c.title)} <span style="color:#9ba3bf">(${c.count})</span>`).join(' · ')}
+          </td></tr>` : ''}
+          ${(trends.content.topActors || []).slice(0, 5).length > 0 ? `
+          <tr><td style="padding:6px 0;font-size:12px;color:#3a4163;line-height:1.7;border-top:1px solid #f0f2f8">
+            <strong style="color:#10b981">🎭 배우 TOP ${Math.min(5, (trends.content.topActors || []).length)}</strong> ·
+            ${(trends.content.topActors || []).slice(0, 5).map((a: any) => `${escNl(a.name)} <span style="color:#9ba3bf">(${a.count})</span>`).join(' · ')}
+          </td></tr>` : ''}
+        </table>` : ''}
+
+        ${koreanInsights.length > 0 ? `
+        <div style="font-size:12px;font-weight:700;color:#ec4899;text-transform:uppercase;letter-spacing:0.4px;margin:6px 0 10px;padding-top:8px;border-top:2px solid #f0f2f8">🧠 핵심 인사이트 (Claude 해석)</div>
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-          ${koreanInsights.slice(0, 4).map(insightCard).join('')}
-        </table>
+          ${koreanInsights.slice(0, 3).map(insightCard).join('')}
+        </table>` : ''}
       </td></tr>` : ''}
 
       <!-- Reddit TOP 포스트 댓글 딥분석 -->
@@ -421,30 +442,6 @@ app.get('/api/newsletter/:id', (req, res) => {
         </div>
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
           ${top3Posts.map((d: any, i: number) => postCard(d, i)).join('')}
-        </table>
-      </td></tr>` : ''}
-
-      <!-- 콘텐츠 트렌드 (작품·배우·키워드 빈도) -->
-      ${trends?.content && ((trends.content.topContents?.length || 0) + (trends.content.topActors?.length || 0) + (trends.content.topKeywords?.length || 0)) > 0 ? `
-      <tr><td style="background:#fff;padding:24px 36px;border-left:1px solid #e0e4ef;border-right:1px solid #e0e4ef">
-        <div style="font-size:14px;font-weight:700;color:#1a1a2e;margin-bottom:6px;padding-bottom:8px;border-bottom:2px solid #f0f2f8">🔥 콘텐츠 트렌드 — 작품·배우·키워드</div>
-        <div style="font-size:11px;color:#9ba3bf;margin-bottom:12px">Reddit 포스트 제목·본문에서 추출한 빈도 기반 raw 신호</div>
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-          ${(trends.content.topContents || []).slice(0, 5).length > 0 ? `
-          <tr><td style="padding:6px 0;font-size:12px;color:#3a4163;line-height:1.7">
-            <strong style="color:#8b5cf6">📺 작품 TOP ${Math.min(5, (trends.content.topContents || []).length)}</strong> ·
-            ${(trends.content.topContents || []).slice(0, 5).map((c: any) => `${escNl(c.title)} <span style="color:#9ba3bf">(${c.count})</span>`).join(' · ')}
-          </td></tr>` : ''}
-          ${(trends.content.topActors || []).slice(0, 5).length > 0 ? `
-          <tr><td style="padding:6px 0;font-size:12px;color:#3a4163;line-height:1.7;border-top:1px solid #f0f2f8">
-            <strong style="color:#10b981">🎭 배우 TOP ${Math.min(5, (trends.content.topActors || []).length)}</strong> ·
-            ${(trends.content.topActors || []).slice(0, 5).map((a: any) => `${escNl(a.name)} <span style="color:#9ba3bf">(${a.count})</span>`).join(' · ')}
-          </td></tr>` : ''}
-          ${(trends.content.topKeywords || []).slice(0, 8).length > 0 ? `
-          <tr><td style="padding:6px 0;font-size:12px;color:#3a4163;line-height:1.7;border-top:1px solid #f0f2f8">
-            <strong style="color:#f59e0b">🏷️ 키워드 TOP ${Math.min(8, (trends.content.topKeywords || []).length)}</strong> ·
-            ${(trends.content.topKeywords || []).slice(0, 8).map((k: any) => `${escNl(k.keyword)} <span style="color:#9ba3bf">(${k.count})</span>`).join(' · ')}
-          </td></tr>` : ''}
         </table>
       </td></tr>` : ''}
 
@@ -626,7 +623,9 @@ app.post('/api/schedule/trigger', async (req, res) => {
       log(`Reddit 실패: ${(e as Error).message}`)
     }
 
-    const report = runPipeline({ redditPosts, reportType })
+    const mdlCacheForSch = getMdlCache<MdlSummary>(MDL_CACHE_KEY)
+    const extraKnownTitlesForSch = mdlCacheForSch?.data?.dramas?.map((d: any) => d.drama?.title).filter(Boolean) || []
+    const report = runPipeline({ redditPosts, reportType, extraKnownDramaTitles: extraKnownTitlesForSch })
     if (redditMeta) {
       ;(report as any).redditCrawlMeta = {
         cutoffLabel: redditMeta.cutoffLabel,
@@ -727,13 +726,20 @@ app.post('/api/mdl/refresh', async (req, res) => {
     console.log('[MDL] 새 크롤링 시작...')
     const t0 = Date.now()
     const { crawlMdlTopAiring } = await import('./crawlers/mdl.js')
-    const dramas = await crawlMdlTopAiring({ topN: 5, reviewsPerDrama: 10 })
+    const dramas = await crawlMdlTopAiring({ topN: 5, reviewsPerDrama: 50 })
     saveCrawlLog('mdl', dramas.length, dramas.length > 0 ? 'success' : 'failed')
     if (dramas.length === 0) {
       return res.status(503).json({ ok: false, error: 'MDL 크롤링 실패 (0개 드라마)' })
     }
 
     const summary = analyzeMdlDramas(dramas)
+    // 대표 리뷰 한국어 번역 (Groq, 캐시됨)
+    try {
+      const { translateMdlSummaryInPlace } = await import('./pipeline/translateMdl.js')
+      await translateMdlSummaryInPlace(summary)
+    } catch (e) {
+      console.warn('[MDL] 번역 실패 (영문 유지):', (e as Error).message)
+    }
     const ttl = setMdlCache(MDL_CACHE_KEY, summary, MDL_CACHE_TTL_SEC)
     console.log(`[MDL] 완료 (${((Date.now() - t0) / 1000).toFixed(1)}s) - ${dramas.length}개 드라마, 리뷰 ${dramas.reduce((s, d) => s + d.reviews.length, 0)}개`)
 

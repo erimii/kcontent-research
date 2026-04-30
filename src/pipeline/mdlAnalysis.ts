@@ -160,6 +160,7 @@ export function analyzeMdlDramas(dramas: MdlDrama[]): MdlSummary {
       drama: {
         slug: d.slug,
         title: d.title,
+        nativeTitle: d.nativeTitle,
         url: d.url,
         rating: d.rating,
         posterUrl: d.posterUrl,

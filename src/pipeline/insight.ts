@@ -298,59 +298,10 @@ export function generateKoreanInsights(args: {
     `행동: ${behSorted.map(([k, v]) => `${BEHAVIOR_LABEL[k]} ${pct(v)}`).join(' · ')}`,
   ]))
 
-  // ─────────────────────────────────────────────────────────────────
-  // 3. 콘텐츠 소비 패턴 — 댓글 토론 / 감정 outlier → 학습 형태
-  // ─────────────────────────────────────────────────────────────────
-  if (deepAnalysis.length >= 2) {
-    const comments = deepAnalysis.map((d) => d.commentCount)
-    const avgComments = comments.reduce((s, c) => s + c, 0) / comments.length
-    const maxComments = Math.max(...comments)
-    const commentSpread = maxComments / Math.max(1, avgComments)
-
-    const posRates = deepAnalysis.map((d) => d.sentiment.positiveRatio)
-    const avgPos = posRates.reduce((s, p) => s + p, 0) / posRates.length
-    const posMax = Math.max(...posRates)
-    const posMin = Math.min(...posRates)
-    const posSpreadPp = Math.round((posMax - posMin) * 100)
-
-    const outlierNeg = deepAnalysis.find((d) => avgPos - d.sentiment.positiveRatio >= 0.2)
-
-    let consumTriple: InsightTriple
-    if (commentSpread >= 2 && deepAnalysis[0].title) {
-      consumTriple = {
-        observation: `TOP 포스트 "${deepAnalysis[0].title.slice(0, 40)}" 댓글 ${maxComments}개가 평균 ${avgComments.toFixed(0)}개의 ${commentSpread.toFixed(1)}배.`,
-        interpretation: `학습자들이 단일 작품의 특정 장면·대사·인물에 집중적으로 반응하는 비대칭 집중 단계.`,
-        action: `그 포스트의 댓글 쟁점(누가 무엇에 대해 가장 많이 토론했는가)을 추출해 "팬들이 가장 많이 토론한 장면 TOP 3"를 30초 클립 + 핵심 대사 받아쓰기 + 어휘 카드로 패키징한 마이크로 학습 모듈로 제공. 댓글 토론 자체를 학습 진입 후크로 사용해 "왜 이 장면이 화제인가" 호기심을 한국어 학습 동기로 전환.`,
-      }
-    } else if (outlierNeg && posSpreadPp >= 25) {
-      consumTriple = {
-        observation: `"${outlierNeg.title.slice(0, 40)}" 단독 긍정률 ${pct(outlierNeg.sentiment.positiveRatio)}로 평균(${pct(avgPos)}) 대비 ${posSpreadPp}%p 미달.`,
-        interpretation: `학습자가 이 작품의 캐릭터 행동·전개에 강한 의문을 제기하는 단계 — 문화 차이가 학습 욕구로 전환되는 시점.`,
-        action: `이 작품의 주요 부정 댓글 쟁점을 한국 문화 학습 콘텐츠로 직접 전환 — "왜 한국 드라마는 이 상황에서 X처럼 행동하는가"를 존댓말 위계·관계 거리감·체면 문화 같은 학습 모듈로 만들고, 해당 작품 시청 중 등장 시점에 푸시 알림으로 즉시 노출해 분쟁이 일어난 그 장면을 학습 콘텐츠로 변환.`,
-      }
-    } else if (posSpreadPp >= 30) {
-      consumTriple = {
-        observation: `TOP${deepAnalysis.length}개 포스트 긍정률 ${pct(posMin)}~${pct(posMax)}로 ${posSpreadPp}%p 폭 산포.`,
-        interpretation: `학습자가 작품마다 호응 패턴이 명확히 갈리는 상태 — 개인화 추천이 retention에 직결되는 시점.`,
-        action: `작품 추천 알고리즘에 사용자별 반응 프로필 도입 — 사용자가 좋아한 작품의 긍정률·장르·감정 키워드 패턴을 학습 후 "당신이 좋아할 다음 K-드라마 + 그에 맞는 어휘 코스"를 자동 추천. 시청 → 학습 → 다음 시청 사이클이 사용자별로 개인화된 retention loop으로 작동.`,
-      }
-    } else {
-      consumTriple = {
-        observation: `TOP${deepAnalysis.length}개 포스트 긍정률 ${pct(posMin)}~${pct(posMax)}(${posSpreadPp}%p)로 작품 간 호응 패턴 유사.`,
-        interpretation: `학습자가 K-드라마 전반에 비슷한 강도로 호응 — 작품별 차별화보다 장르 단위 묶음이 효율적인 단계.`,
-        action: `작품별 차별화 코스 대신 "장르별 한국어 어휘 팩"(로맨스 표현·사극 존댓말·일상 회화·법정 어휘) 단위로 통합. 한 학습자가 여러 작품을 횡단하며 같은 어휘를 다른 컨텍스트로 반복 노출, 어휘 정착 사이클을 작품 단위가 아닌 장르 단위로 재설계.`,
-      }
-    }
-
-    out.push(makeInsight(
-      'consumption_pattern',
-      consumTriple,
-      deepAnalysis.slice(0, 3).map((d) => `${d.title.slice(0, 40)}: 댓글 ${d.commentCount}개, 긍정률 ${pct(d.sentiment.positiveRatio)}`),
-    ))
-  }
+  // (콘텐츠 소비 패턴 카테고리는 'Reddit TOP5 포스트 댓글 딥분석' 카드와 중복되어 제거됨)
 
   // ─────────────────────────────────────────────────────────────────
-  // 4. 확장 흐름 — 작품 vs 키워드 vs 배우 → 학습 콘텐츠 카테고리
+  // 3. 확장 흐름 — 작품 vs 키워드 vs 배우 → 학습 콘텐츠 카테고리
   // ─────────────────────────────────────────────────────────────────
   const contentSum = content.topContents.slice(0, 5).reduce((s, c) => s + c.count, 0)
   const keywordSum = content.topKeywords.slice(0, 8).reduce((s, k) => s + k.count, 0)
@@ -385,5 +336,5 @@ export function generateKoreanInsights(args: {
     ]))
   }
 
-  return out.slice(0, 4)
+  return out.slice(0, 3)
 }

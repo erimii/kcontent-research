@@ -31,6 +31,7 @@ export function runPipeline(input: PipelineInput): RankedReport {
     redditPosts = [],
     reportType = 'daily',
     filterOptions = {},
+    extraKnownDramaTitles = [],
   } = input
 
   const now = new Date()
@@ -41,7 +42,7 @@ export function runPipeline(input: PipelineInput): RankedReport {
   const { filtered: cleanPosts, stats: filterStats } = filterPosts(redditPosts, filterOptions)
 
   // ── Stage 3: 전체 트렌드 분석 ───────────────────────────────
-  const contentTrend = analyzeContentTrend(cleanPosts)
+  const contentTrend = analyzeContentTrend(cleanPosts, extraKnownDramaTitles)
   const sentimentTrend = analyzeSentimentTrend(cleanPosts)
   const behaviorTrend = analyzeBehaviorTrend(cleanPosts)
   const subredditInsights = analyzeBySubreddit(cleanPosts)
