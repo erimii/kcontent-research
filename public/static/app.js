@@ -2382,6 +2382,7 @@ function renderSidebar() {
     ['schedule',  'fas fa-clock',         '스케줄'],
     ['history',   'fas fa-folder-open',   '아카이브'],
     ['search',    'fas fa-search',        '검색'],
+    ['help',      'fas fa-circle-question', '📖 도움말'],
   ]
   return `
     <div class="sidebar" id="sidebar">
@@ -2421,9 +2422,47 @@ function renderPage() {
     history:   renderHistory,
     search:    renderSearch,
     schedule:  renderSchedule,
+    help:      renderHelp,
   }
   const fn = pages[state.page] || renderDashboard
   document.getElementById('page-content').innerHTML = fn()
+}
+
+// ============================================================
+// 도움말 페이지 (docs/dashboard-guide.md → /api/guide → HTML)
+// ============================================================
+function renderHelp() {
+  setTimeout(loadGuideContent, 50)
+  return `
+    <div class="page-header">
+      <div>
+        <div class="page-title">📖 대시보드 가이드</div>
+        <div class="page-sub">처음 사용하는 분을 위한 섹션별 설명</div>
+      </div>
+    </div>
+    <div style="padding:20px 28px">
+      <div class="card">
+        <div class="card-body" id="guide-content" style="padding:28px 36px;font-size:14px;line-height:1.75;color:var(--text-primary)">
+          <div class="loading-overlay"><div class="spinner"></div> 가이드 로딩 중...</div>
+        </div>
+      </div>
+    </div>`
+}
+
+async function loadGuideContent() {
+  const el = document.getElementById('guide-content')
+  if (!el) return
+  try {
+    const r = await fetch('/api/guide').then(x => x.json())
+    if (r.ok && r.html) {
+      // marked 렌더 결과를 그대로 삽입. 헤더·표·강조·구분선 등 자동 스타일링 적용
+      el.innerHTML = `<div class="markdown-body" style="--md-fg:var(--text-primary)">${r.html}</div>`
+    } else {
+      el.innerHTML = '<div style="color:var(--text-muted);font-size:13px">가이드 로딩 실패</div>'
+    }
+  } catch (e) {
+    el.innerHTML = `<div style="color:var(--text-muted);font-size:13px">로딩 오류: ${escHtml(String(e))}</div>`
+  }
 }
 
 function render() {

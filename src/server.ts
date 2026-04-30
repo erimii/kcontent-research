@@ -6,7 +6,9 @@
 import express from 'express'
 import cors from 'cors'
 import path from 'path'
+import fs from 'fs'
 import { fileURLToPath } from 'url'
+import { marked } from 'marked'
 import {
   db, initDb, saveReport, saveCrawlLog,
   getLatestReport, getReportList, getReportById, getCrawlLogs, searchSnapshots,
@@ -758,6 +760,26 @@ app.post('/api/youtube/refresh', async (req, res) => {
   } catch (e) {
     console.error('[YouTube] 오류:', e)
     saveCrawlLog('youtube', 0, 'failed', String(e))
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+// ============================================================
+// 대시보드 가이드 (docs/dashboard-guide.md → HTML)
+// ============================================================
+let guideHtmlCache: { html: string; mtime: number } | null = null
+
+app.get('/api/guide', (_req, res) => {
+  try {
+    const mdPath = path.join(__dirname, '..', 'docs', 'dashboard-guide.md')
+    const stat = fs.statSync(mdPath)
+    if (!guideHtmlCache || guideHtmlCache.mtime !== stat.mtimeMs) {
+      const md = fs.readFileSync(mdPath, 'utf-8')
+      const html = marked.parse(md, { async: false }) as string
+      guideHtmlCache = { html, mtime: stat.mtimeMs }
+    }
+    res.json({ ok: true, html: guideHtmlCache.html })
+  } catch (e) {
     res.status(500).json({ ok: false, error: String(e) })
   }
 })
