@@ -92,6 +92,7 @@ async function fetchRSS(subreddit: string, sort: SortKey): Promise<RedditPost[]>
 
     // 본문 추출: <content type="html">...</content> 안의 HTML을 평문으로
     const contentRaw = decodeEntities(entry.match(/<content[^>]*>([\s\S]*?)<\/content>/)?.[1] || '')
+    const imageUrl = extractPostImageUrl(contentRaw)
     const selftext = contentRaw
       .replace(/<!--[\s\S]*?-->/g, ' ')
       .replace(/<[^>]+>/g, ' ')
@@ -110,6 +111,7 @@ async function fetchRSS(subreddit: string, sort: SortKey): Promise<RedditPost[]>
       title,
       selftext,
       url: link,
+      imageUrl,
       score: recencyScore,    // RSS에 score 없음 → 최신성으로 대체 (댓글 수집 후 재산정)
       commentCount: 0,        // 댓글 RSS 수집 후 업데이트
       createdAt: published ? new Date(published).toISOString() : new Date().toISOString(),
@@ -119,6 +121,31 @@ async function fetchRSS(subreddit: string, sort: SortKey): Promise<RedditPost[]>
   }
 
   return entries
+}
+
+function normalizeImageUrl(raw?: string): string | undefined {
+  if (!raw) return undefined
+  const url = decodeEntities(raw.trim())
+  if (!/^https?:\/\//i.test(url)) return undefined
+  if (/redditstatic\.com\/(avatars|icon|default|award)/i.test(url)) return undefined
+  if (/\/static\/.*\.(svg|png)$/i.test(url)) return undefined
+  return url
+}
+
+function extractPostImageUrl(html: string): string | undefined {
+  const imgMatches = [...html.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)]
+  for (const m of imgMatches) {
+    const url = normalizeImageUrl(m[1])
+    if (url) return url
+  }
+
+  const linkMatches = [...html.matchAll(/href=["']([^"']+\.(?:png|jpe?g|webp|gif)(?:\?[^"']*)?)["']/gi)]
+  for (const m of linkMatches) {
+    const url = normalizeImageUrl(m[1])
+    if (url) return url
+  }
+
+  return undefined
 }
 
 // ============================================================

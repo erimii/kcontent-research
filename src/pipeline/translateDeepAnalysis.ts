@@ -9,17 +9,12 @@ import { translateBatch } from '../lib/translate.js'
 export async function translateDeepAnalysisInPlace(deepAnalysis: DeepAnalysis[]): Promise<void> {
   if (!deepAnalysis || deepAnalysis.length === 0) return
 
-  // 번역 대상 수집: 제목 + topComments + commentDebates representatives
-  const items: { kind: 'title' | 'topComment' | 'rep'; postIdx: number; idx?: number; debateIdx?: number; text: string }[] = []
+  // 번역 대상 수집: 제목 + 화면에 표시되는 commentDebates representatives
+  const items: { kind: 'title' | 'rep'; postIdx: number; idx?: number; debateIdx?: number; text: string }[] = []
 
   for (let pi = 0; pi < deepAnalysis.length; pi++) {
     const d = deepAnalysis[pi]
     if (d.title) items.push({ kind: 'title', postIdx: pi, text: d.title })
-
-    const top = (d.topComments || []).slice(0, 5) // 상위 5개만 번역
-    for (let i = 0; i < top.length; i++) {
-      if (top[i]?.body) items.push({ kind: 'topComment', postIdx: pi, idx: i, text: top[i].body })
-    }
 
     for (let bi = 0; bi < (d.commentDebates || []).length; bi++) {
       const reps = d.commentDebates[bi].representatives || []
@@ -44,9 +39,6 @@ export async function translateDeepAnalysisInPlace(deepAnalysis: DeepAnalysis[])
     const d = deepAnalysis[it.postIdx]
     if (it.kind === 'title') {
       d.titleKo = ko
-    } else if (it.kind === 'topComment' && typeof it.idx === 'number') {
-      const c = d.topComments[it.idx]
-      if (c) c.bodyKo = ko
     } else if (it.kind === 'rep' && typeof it.idx === 'number' && typeof it.debateIdx === 'number') {
       const r = d.commentDebates[it.debateIdx]?.representatives?.[it.idx]
       if (r) r.bodyKo = ko

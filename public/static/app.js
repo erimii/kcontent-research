@@ -1029,6 +1029,14 @@ function renderCommentDebates(debates) {
     </div>`
 }
 
+function renderDeepPostMedia(d) {
+  if (!d.imageUrl) return ''
+  return `
+    <a class="deep-post-media" href="${escHtml(d.url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">
+      <img src="${escHtml(d.imageUrl)}" alt="" loading="lazy" onerror="this.parentElement.remove()">
+    </a>`
+}
+
 function renderDeepAnalysis(r) {
   const list = r.deepAnalysis || []
   if (list.length === 0) return ''
@@ -1042,69 +1050,67 @@ function renderDeepAnalysis(r) {
       <div style="font-size:11px;color:var(--text-muted);line-height:1.55;padding:0 14px 12px">
         📡 출처: Reddit 토론 TOP 5 포스트 · 댓글 합계 <strong style="color:var(--text-primary)">${totalComments}개</strong> 분석 · 포스트당 댓글 RSS에서 본문 길이 ≥20자 댓글 수집 후 감정/의견/쟁점 클러스터링
       </div>
-      <div class="card-body" style="padding:0 12px 8px">
+      <div class="card-body deep-analysis-body">
         ${collapsibleSection('deep-analysis', list.map((d, i) => ({ d, i })), 1, ({ d, i }) => {
           const total = d.sentiment.positive + d.sentiment.negative || 1
           const pos = (d.sentiment.positiveRatio * 100).toFixed(0)
           const neg = (d.sentiment.negativeRatio * 100).toFixed(0)
-          const opTotal = Object.values(d.opinionTypes).reduce((a,b)=>a+b,0) || 1
+          const opinionRows = Object.entries(d.opinionTypes)
+            .filter(([, v]) => v > 0)
+            .map(([k, v]) => `
+              <div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0">
+                <span>${OPINION_LABEL_KO[k]}</span>
+                <span style="color:var(--text-muted)">${v}</span>
+              </div>`)
+            .join('') || '<div style="font-size:11px;color:var(--text-muted)">없음</div>'
           return `
-            <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.05)">
-              <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:6px">
-                <div style="font-weight:600;flex:1;min-width:0">
-                  <span style="color:#8b5cf6;margin-right:6px">#${i+1}</span>
-                  <a href="${d.url}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none">${escHtml(d.titleKo || d.title)}</a>
-                  ${d.titleKo && d.titleKo !== d.title ? `<div style="font-size:11px;color:var(--text-muted);font-weight:400;margin-top:2px">${escHtml(d.title)}</div>` : ''}
+            <article class="deep-post-card">
+              <div class="deep-post-rank">#${i + 1}</div>
+              <div class="deep-post-main">
+                <div class="deep-post-header">
+                  <div class="deep-post-title-wrap">
+                    <a class="deep-post-title" href="${escHtml(d.url)}" target="_blank" rel="noopener noreferrer">${escHtml(d.titleKo || d.title)}</a>
+                    ${d.titleKo && d.titleKo !== d.title ? `<div class="deep-post-original-title">${escHtml(d.title)}</div>` : ''}
+                  </div>
+                  <div class="deep-post-meta">
+                    <span>r/${escHtml(d.subreddit)}</span>
+                    <span><i class="fas fa-comment"></i> ${d.commentCount}</span>
+                    <span><i class="fas fa-arrow-up"></i> ${fmtScore(d.score)}</span>
+                  </div>
                 </div>
-                <div style="font-size:11px;color:var(--text-muted);white-space:nowrap">r/${d.subreddit} · 💬${d.commentCount}</div>
+
+                <div class="deep-post-layout">
+                  ${renderDeepPostMedia(d)}
+                  <div class="deep-post-detail">
+                    <div class="deep-post-summary">${escHtml(d.summary)}</div>
+
+                    ${d.sentimentSummary ? `
+                      <div class="deep-sentiment-box">
+                        <div class="deep-section-label" style="color:#34d399">댓글 감정 분포</div>
+                        <div>${escHtml(d.sentimentSummary)}</div>
+                        ${total > 1 ? `
+                          <div class="deep-sentiment-bar">
+                            <div style="width:${pos}%;background:#10b981"></div>
+                            <div style="width:${neg}%;background:#ef4444"></div>
+                          </div>` : ''}
+                      </div>` : ''}
+
+                    <div class="deep-post-grid">
+                      <div class="deep-mini-panel">
+                        <div class="deep-section-label">의견 유형</div>
+                        ${opinionRows}
+                      </div>
+                      <div class="deep-mini-panel">
+                        <div class="deep-section-label">반응 패턴</div>
+                        <div style="font-size:11px;line-height:1.5">${escHtml(d.reactionCause)}</div>
+                      </div>
+                    </div>
+
+                    ${renderCommentDebates(d.commentDebates)}
+                  </div>
+                </div>
               </div>
-              <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;line-height:1.5">${escHtml(d.summary)}</div>
-
-              <!-- 댓글 감정 자연어 요약 -->
-              ${d.sentimentSummary ? `
-                <div style="padding:8px 12px;background:rgba(16,185,129,0.06);border-left:3px solid #10b981;border-radius:4px;margin-bottom:10px;font-size:12px;line-height:1.55">
-                  <div style="font-size:10px;color:#34d399;text-transform:uppercase;font-weight:700;margin-bottom:3px">💬 댓글 감정 분포</div>
-                  ${escHtml(d.sentimentSummary)}
-                  ${total > 1 ? `
-                    <div style="margin-top:6px;display:flex;height:5px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,0.05)">
-                      <div style="width:${pos}%;background:#10b981"></div>
-                      <div style="width:${neg}%;background:#ef4444"></div>
-                    </div>` : ''}
-                </div>` : ''}
-
-              ${renderCommentDebates(d.commentDebates)}
-
-              <!-- 의견 유형 + 반응 원인 chips -->
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:10px">
-                <div>
-                  <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">의견 유형</div>
-                  ${Object.entries(d.opinionTypes).map(([k,v]) => v > 0 ? `
-                    <div style="display:flex;justify-content:space-between;font-size:11px;padding:1px 0">
-                      <span>${OPINION_LABEL_KO[k]}</span><span style="color:var(--text-muted)">${v}</span>
-                    </div>` : '').join('') || '<div style="font-size:11px;color:var(--text-muted)">없음</div>'}
-                </div>
-                <div>
-                  <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">반응 패턴</div>
-                  <div style="font-size:11px;line-height:1.5">${escHtml(d.reactionCause)}</div>
-                </div>
-              </div>
-
-              ${(d.topComments && d.topComments.length) ? `
-                <div style="margin-top:8px">
-                  <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">대표 댓글</div>
-                  ${d.topComments.map(c => {
-                    const display = c.bodyKo || c.body
-                    const original = c.bodyKo && c.bodyKo !== c.body ? c.body : null
-                    return `
-                    <div style="font-size:11px;padding:6px 10px;background:rgba(255,255,255,0.02);border-left:2px solid #8b5cf6;margin-bottom:4px;border-radius:3px;line-height:1.5">
-                      <i class="fas fa-quote-left" style="font-size:8px;opacity:0.4;margin-right:4px"></i>
-                      ${escHtml(display.slice(0, 220))}${display.length > 220 ? '…' : ''}
-                      <span style="float:right;color:var(--text-muted);font-size:10px">▲${c.score}</span>
-                      ${original ? `<div style="font-size:10px;color:var(--text-muted);margin-top:3px;font-style:italic;opacity:0.7">↳ ${escHtml(original.slice(0, 200))}${original.length > 200 ? '…' : ''}</div>` : ''}
-                    </div>`
-                  }).join('')}
-                </div>` : ''}
-            </div>`
+            </article>`
         })}
       </div>
     </div>`
@@ -1191,14 +1197,12 @@ function renderDashboard() {
       </div>
     </div>
 
-    <div style="padding:20px 28px;display:flex;flex-direction:column;gap:20px">
+    <div class="dashboard-sections" style="padding:20px 28px;display:flex;flex-direction:column;gap:20px">
 
-      <div id="youtube-section"></div>
       ${renderContentInsights(r)}
-      <div id="mdl-section"></div>
-
       ${renderDeepAnalysis(r)}
-
+      <div id="mdl-section"></div>
+      <div id="youtube-section"></div>
       <div id="gtrends-section"></div>
 
     </div>`

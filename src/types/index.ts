@@ -8,6 +8,7 @@ export interface RedditPost {
   title: string
   selftext?: string
   url: string
+  imageUrl?: string
   score: number
   commentCount: number
   createdAt: string
@@ -203,6 +204,7 @@ export interface DeepAnalysis {
   title: string
   titleKo?: string               // 한국어 번역 (Groq AI)
   url: string
+  imageUrl?: string
   subreddit: string
   score: number
   commentCount: number

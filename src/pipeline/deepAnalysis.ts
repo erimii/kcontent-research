@@ -590,6 +590,7 @@ export function deepAnalyzePosts(posts: RedditPost[]): DeepAnalysis[] {
       postId: p.id,
       title: p.title,
       url: p.url,
+      imageUrl: p.imageUrl,
       subreddit: p.subreddit,
       score: p.score,
       commentCount: p.commentCount,
