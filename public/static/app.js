@@ -1331,77 +1331,220 @@ function renderRanking() {
   const r = state.currentReport
   if (!r) return renderNoReport()
 
-  const activeTab = window._rankTab || 'all'
-  let items = r.topContents || []
-  if (activeTab === 'k')          items = items.filter(c => c.isKContent)
-  if (activeTab === 'reddit')     items = items.filter(c => c.sources.includes('reddit'))
-  if (activeTab === 'multi')      items = items.filter(c => c.sources.length >= 2)
-  const maxScore = items[0]?.finalScore || 1
+  const activeTab = window._rankTab || 'reddit'
+  const mdlSum = state.mdlSummary
+  const ytSum = state.youtubeSummary
+
+  // 탭별 항목 수
+  const counts = {
+    reddit: (r.topContents || []).length,
+    mdl: mdlSum?.dramas?.length || 0,
+    youtube: ytSum?.topVideos?.length || 0,
+  }
+  const totalForActive = counts[activeTab] ?? counts.reddit
+
+  const tabs = [
+    ['reddit',  `🔥 Reddit ${counts.reddit}`,    '#ff6534'],
+    ['mdl',     `📺 MDL ${counts.mdl}`,          '#a78bfa'],
+    ['youtube', `▶️ YouTube ${counts.youtube}`,   '#ef4444'],
+  ]
+
+  let body = ''
+  if (activeTab === 'mdl')          body = renderMdlRankingTable(mdlSum)
+  else if (activeTab === 'youtube') body = renderYoutubeRankingTable(ytSum)
+  else                              body = renderRedditRankingTable(r, activeTab)
 
   return `
     <div class="page-header">
       <div>
         <div class="page-title">🏆 콘텐츠 랭킹</div>
-        <div class="page-sub">${fmtDate(r.generatedAt)} · ${items.length}개 항목</div>
+        <div class="page-sub">${fmtDate(r.generatedAt)} · ${totalForActive}개 항목</div>
       </div>
     </div>
     <div style="padding:20px 28px">
-      <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center">
+      <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
         <div class="tabs" style="width:fit-content">
-          ${[['all','전체'],['k','🇰🇷 K-콘텐츠'],['reddit','Reddit']].map(([tab, label]) =>
+          ${tabs.map(([tab, label]) =>
             `<button class="tab-btn ${activeTab===tab?'active':''}" onclick="setRankTab('${tab}')">${label}</button>`
           ).join('')}
         </div>
         <div style="flex:1"></div>
-        <span style="font-size:12px;color:var(--text-muted)">총 ${items.length}개</span>
+        <span style="font-size:12px;color:var(--text-muted)">총 ${totalForActive}개</span>
       </div>
 
       <div class="card">
         <div class="card-body" style="padding:0">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th style="width:40px">#</th>
-                <th>제목</th>
-                <th>타입</th>
-                <th>소스</th>
-                <th>플랫폼</th>
-                <th>배우</th>
-                <th style="text-align:right">점수</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${items.map((c, i) => `
-                <tr>
-                  <td><span class="rank-num ${rankColor(i)}" style="font-size:13px">${i+1}</span></td>
-                  <td>
-                    <div style="font-size:13px;font-weight:500">${escHtml(c.representativeTitle)}</div>
-                    ${c.aliases?.length ? `<div style="font-size:11px;color:var(--text-muted)">별칭: ${c.aliases.slice(0,2).join(', ')}</div>` : ''}
-                    <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">
-                      ${c.isKContent ? '<span class="badge badge-k">K</span>' : ''}
-                      ${renderRedditSourceLinks(c.rawItems)}
-                    </div>
-                  </td>
-                  <td>${contentTypeBadge(c.contentType) || '<span style="color:var(--text-muted)">-</span>'}</td>
-                  <td>
-                    <div style="display:flex;gap:4px;flex-wrap:wrap">
-                      ${c.sources.map(s => `<span style="font-size:11px;color:${sourceColor(s)}">${s}</span>`).join('<span style="color:var(--text-muted)"> · </span>')}
-                    </div>
-                  </td>
-                  <td style="font-size:11px;color:var(--text-muted)">${c.platforms?.join(', ') || '-'}</td>
-                  <td style="font-size:11px;color:var(--text-muted)">${c.actors?.slice(0,2).join(', ') || '-'}</td>
-                  <td style="text-align:right">
-                    <div class="score-bar-wrap">
-                      <div class="score-bar"><div class="score-fill" style="width:${Math.round(c.finalScore/maxScore*100)}%"></div></div>
-                      <span style="font-size:12px;color:var(--accent-blue);min-width:36px;text-align:right">${fmtScore(c.finalScore)}</span>
-                    </div>
-                  </td>
-                </tr>`).join('')}
-            </tbody>
-          </table>
+          ${body}
         </div>
       </div>
     </div>`
+}
+
+// ── Reddit 랭킹 테이블 (기존) ────────────────────────────────
+function renderRedditRankingTable(r, activeTab) {
+  let items = r.topContents || []
+  if (activeTab === 'k')          items = items.filter(c => c.isKContent)
+  if (activeTab === 'reddit')     items = items.filter(c => c.sources.includes('reddit'))
+  const maxScore = items[0]?.finalScore || 1
+
+  if (items.length === 0) return '<div class="empty-state"><i class="fas fa-database"></i><p>데이터 없음</p></div>'
+
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:40px">#</th>
+          <th>제목</th>
+          <th>타입</th>
+          <th>소스</th>
+          <th>플랫폼</th>
+          <th>배우</th>
+          <th style="text-align:right">점수</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map((c, i) => `
+          <tr>
+            <td><span class="rank-num ${rankColor(i)}" style="font-size:13px">${i+1}</span></td>
+            <td>
+              <div style="font-size:13px;font-weight:500">${escHtml(c.representativeTitle)}</div>
+              ${c.aliases?.length ? `<div style="font-size:11px;color:var(--text-muted)">별칭: ${c.aliases.slice(0,2).join(', ')}</div>` : ''}
+              <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">
+                ${c.isKContent ? '<span class="badge badge-k">K</span>' : ''}
+                ${renderRedditSourceLinks(c.rawItems)}
+              </div>
+            </td>
+            <td>${contentTypeBadge(c.contentType) || '<span style="color:var(--text-muted)">-</span>'}</td>
+            <td>
+              <div style="display:flex;gap:4px;flex-wrap:wrap">
+                ${c.sources.map(s => `<span style="font-size:11px;color:${sourceColor(s)}">${s}</span>`).join('<span style="color:var(--text-muted)"> · </span>')}
+              </div>
+            </td>
+            <td style="font-size:11px;color:var(--text-muted)">${c.platforms?.join(', ') || '-'}</td>
+            <td style="font-size:11px;color:var(--text-muted)">${c.actors?.slice(0,2).join(', ') || '-'}</td>
+            <td style="text-align:right">
+              <div class="score-bar-wrap">
+                <div class="score-bar"><div class="score-fill" style="width:${Math.round(c.finalScore/maxScore*100)}%"></div></div>
+                <span style="font-size:12px;color:var(--accent-blue);min-width:36px;text-align:right">${fmtScore(c.finalScore)}</span>
+              </div>
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`
+}
+
+// ── MDL 랭킹 테이블 ──────────────────────────────────────────
+// MDL 사이트 Top Airing 자체 순위 그대로 (평점·시청자수·신선도 종합).
+// 대시보드 카드와 동일한 순서 유지.
+function renderMdlRankingTable(s) {
+  if (!s || !s.dramas?.length) return '<div class="empty-state"><i class="fas fa-tv"></i><p>MDL 데이터 없음. 크롤링 페이지에서 MDL 새로고침 필요.</p></div>'
+
+  const items = s.dramas
+  const maxRating = Math.max(...items.map(a => a.drama.rating || 0)) || 10
+
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:40px">#</th>
+          <th style="width:60px"></th>
+          <th>제목</th>
+          <th>연도/부작</th>
+          <th>리뷰 수</th>
+          <th>댓글 감정</th>
+          <th style="text-align:right">평점</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map((a, i) => {
+          const d = a.drama
+          const sent = a.reviewSentiment
+          const total = sent.positive + sent.negative || 1
+          const pos = Math.round((sent.positiveRatio || 0) * 100)
+          return `
+            <tr>
+              <td><span class="rank-num ${rankColor(i)}" style="font-size:13px">${i+1}</span></td>
+              <td>${d.posterUrl ? `<img src="${escHtml(d.posterUrl)}" style="width:42px;height:60px;object-fit:cover;border-radius:3px">` : ''}</td>
+              <td>
+                <div style="font-size:13px;font-weight:500">
+                  <a href="${escHtml(d.url)}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none">${escHtml(d.title)}</a>
+                  ${a.polarized ? '<span title="평가 분열" style="display:inline-block;margin-left:6px;padding:1px 6px;background:rgba(245,158,11,0.15);color:#f59e0b;font-size:10px;font-weight:700;border-radius:8px">⚠ 분열</span>' : ''}
+                </div>
+                ${d.description ? `<div style="font-size:11px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px;margin-top:2px">${escHtml(d.description)}</div>` : ''}
+              </td>
+              <td style="font-size:11px;color:var(--text-muted)">${d.year || '-'}${d.episodes ? ` · ${d.episodes}부작` : ''}</td>
+              <td style="font-size:12px">${d.reviewCount}</td>
+              <td>
+                ${total > 1 ? `
+                  <div style="display:flex;align-items:center;gap:6px;font-size:11px">
+                    <div style="display:flex;height:5px;width:60px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,0.05)">
+                      <div style="width:${pos}%;background:#10b981"></div>
+                      <div style="width:${100-pos}%;background:#ef4444"></div>
+                    </div>
+                    <span style="color:#10b981">긍 ${pos}%</span>
+                  </div>` : '<span style="color:var(--text-muted);font-size:11px">데이터 부족</span>'}
+              </td>
+              <td style="text-align:right">
+                <div class="score-bar-wrap">
+                  <div class="score-bar"><div class="score-fill" style="width:${Math.round((d.rating || 0)/maxRating*100)}%;background:#a78bfa"></div></div>
+                  <span style="font-size:12px;color:#a78bfa;min-width:36px;text-align:right;font-weight:600">⭐ ${(d.rating || 0).toFixed(1)}</span>
+                </div>
+              </td>
+            </tr>`
+        }).join('')}
+      </tbody>
+    </table>`
+}
+
+// ── YouTube 랭킹 테이블 ──────────────────────────────────────
+function renderYoutubeRankingTable(s) {
+  if (!s || !s.topVideos?.length) return '<div class="empty-state"><i class="fab fa-youtube"></i><p>YouTube 데이터 없음. 크롤링 페이지에서 YouTube 새로고침 필요.</p></div>'
+
+  const items = s.topVideos
+  const maxViews = items[0]?.views || 1
+
+  const channelBadge = {
+    official: '<span style="display:inline-block;padding:1px 6px;background:rgba(16,185,129,0.15);color:#10b981;font-size:9px;font-weight:700;border-radius:8px;margin-left:4px">✓공식</span>',
+    influencer: '<span style="display:inline-block;padding:1px 6px;background:rgba(245,158,11,0.15);color:#f59e0b;font-size:9px;font-weight:700;border-radius:8px;margin-left:4px">🎤인플루언서</span>',
+    community: '',
+  }
+
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:40px">#</th>
+          <th style="width:90px"></th>
+          <th>제목</th>
+          <th>채널</th>
+          <th>유형</th>
+          <th>업로드</th>
+          <th style="text-align:right">조회수</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map((v, i) => `
+          <tr>
+            <td><span class="rank-num ${rankColor(i)}" style="font-size:13px">${i+1}</span></td>
+            <td>${v.thumbnail ? `<img src="${escHtml(v.thumbnail)}" style="width:80px;height:45px;object-fit:cover;border-radius:3px">` : ''}</td>
+            <td>
+              <div style="font-size:13px;font-weight:500">
+                <a href="https://www.youtube.com/watch?v=${escHtml(v.id)}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none">${escHtml(v.title)}</a>
+                ${channelBadge[v.channelType] || ''}
+              </div>
+            </td>
+            <td style="font-size:11px;color:var(--text-muted);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(v.channel)}</td>
+            <td><span style="font-size:11px;color:${YT_CONTENT_COLOR[v.contentType] || '#6b7280'}">${v.contentType}</span></td>
+            <td style="font-size:11px;color:var(--text-muted)">${escHtml(v.publishedText || '-')}</td>
+            <td style="text-align:right">
+              <div class="score-bar-wrap">
+                <div class="score-bar"><div class="score-fill" style="width:${Math.round((v.views||0)/maxViews*100)}%;background:#ef4444"></div></div>
+                <span style="font-size:12px;color:#ef4444;min-width:50px;text-align:right;font-weight:600">${fmtViews(v.views || 0)}</span>
+              </div>
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`
 }
 
 // ============================================================
@@ -1747,6 +1890,7 @@ function navigateTo(page) {
   state.page = page
   render()
   if (page === 'crawl')    { setTimeout(loadLogs, 100); setTimeout(prefetchMdlCache, 100); setTimeout(prefetchGtrendsCache, 100); setTimeout(prefetchYoutubeCache, 100) }
+  if (page === 'ranking')  { setTimeout(prefetchMdlCache, 100); setTimeout(prefetchYoutubeCache, 100) }
   if (page === 'history')  setTimeout(loadHistory, 100)
   if (page === 'schedule') setTimeout(loadSchedule, 100)
   if (page === 'reddit')   { window._redditSub = '전체'; renderPage() }
@@ -1763,7 +1907,7 @@ async function prefetchMdlCache() {
     const r = await fetch('/api/mdl').then(x => x.json())
     if (r.ok && r.summary) {
       state.mdlSummary = r.summary
-      if (state.page === 'crawl') renderPage()
+      if (state.page === 'crawl' || state.page === 'ranking') renderPage()
     }
   } catch {}
 }
@@ -1785,7 +1929,7 @@ async function prefetchYoutubeCache() {
     const r = await fetch('/api/youtube').then(x => x.json())
     if (r.ok && r.summary) {
       state.youtubeSummary = r.summary
-      if (state.page === 'crawl') renderPage()
+      if (state.page === 'crawl' || state.page === 'ranking') renderPage()
     }
   } catch {}
 }
