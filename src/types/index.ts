@@ -279,6 +279,8 @@ export interface MdlDramaAnalysis {
   reviewDebates: DebateTopic[]
   popularityReason: string
   representativeReviews: { username: string; rating: number; helpful: number; body: string; sentiment: 'positive' | 'negative' | 'neutral' }[]
+  polarized: boolean             // 평가 분열 (평점 vs 리뷰 톤 불일치)
+  polarizedReason?: string       // 분열로 판정된 이유 (UI 툴팁용)
 }
 
 export interface MdlSummary {
@@ -333,4 +335,80 @@ export interface GTrendsSummary {
   oneLineSummary: string         // "현재 북미에서 무엇이 화제인지" 한 줄
   kInsight: string               // K-콘텐츠 위치 분석 (자연어)
   comparison: string             // 비교 인사이트 (자연어)
+}
+
+// ============================================================
+// YouTube SNS 버즈 분석
+// ============================================================
+
+export type YoutubeContentType = 'scene' | 'meme' | 'actor' | 'edit' | 'review' | 'reaction' | 'other'
+
+export interface YoutubeComment {
+  author: string
+  text: string
+  likes: number
+}
+
+export interface YoutubeVideo {
+  id: string
+  title: string
+  channel: string
+  channelVerified?: boolean
+  thumbnail?: string
+  views: number
+  viewsText: string             // "902K views"
+  likes?: number
+  duration?: string
+  publishedText?: string
+  description?: string
+  hashtag: string                // 해당 영상이 잡힌 해시태그
+  contentType: YoutubeContentType
+  isOfficial: boolean            // Netflix/KOCOWA 등 공식
+  comments: YoutubeComment[]
+}
+
+export interface YoutubeContentTypeStat {
+  type: YoutubeContentType
+  label: string                  // "🎬 명장면 클립"
+  count: number
+  totalViews: number
+}
+
+export interface YoutubeReactionPattern {
+  pattern: string                // "OMG", "crying", "where to watch"
+  label: string                  // "감정 폭발", "정보 요청"
+  category: 'emotion' | 'empathy' | 'info_request' | 'praise' | 'criticism'
+  count: number
+  examples: string[]             // 대표 댓글 인용 (1~2개)
+}
+
+export interface YoutubePhrase {
+  phrase: string
+  count: number
+}
+
+export interface YoutubeSummary {
+  fetchedAt: string
+  cached: boolean
+  expiresAt: string
+  totalVideos: number
+  totalComments: number
+  searchedHashtags: string[]
+
+  // 1. 인기 콘텐츠 TOP
+  topVideos: YoutubeVideo[]      // 조회수 정렬 상위
+
+  // 2. 콘텐츠 유형 분포
+  contentTypeStats: YoutubeContentTypeStat[]
+
+  // 3. 발화 내용 (제목·설명에서 반복 phrase)
+  topPhrases: YoutubePhrase[]
+
+  // 4. 댓글 반응 패턴
+  reactionPatterns: YoutubeReactionPattern[]
+
+  // 5. 인사이트 (자연어)
+  buzzInsight: string            // "토론 → 밈 → 확산" 흐름 해석
+  fandomFlowInsight: string      // 팬덤 → 외부 확산 분석
+  oneLineSummary: string         // 한 줄 요약
 }

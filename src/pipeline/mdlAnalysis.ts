@@ -115,9 +115,26 @@ export function analyzeMdlDramas(dramas: MdlDrama[]): MdlSummary {
   const fakePosts = dramas.map(dramaToFakePost)
   const deepResults = deepAnalyzePosts(fakePosts)
 
+  // 평가 분열 판정 (둘 중 하나 만족 시 polarized=true)
+  // 1) MDL 공식 평점 ≥ 8 인데 5점 미만 리뷰 비율이 30% 이상 → 공식 평점과 실제 시청자 분포 불일치
+  // 2) 리뷰 댓글 감정 분포가 양분 (긍/부 모두 ≥ 30% AND 차이 < 25%p)
+  const detectPolarized = (drama: MdlDrama, breakdown: ReturnType<typeof buildRatingBreakdown>, posRatio: number, negRatio: number): { polarized: boolean; reason?: string } => {
+    const dist = breakdown.distribution
+    const totalDist = (dist['9-10'] + dist['7-9'] + dist['5-7'] + dist['below5']) || 0
+    const below5Ratio = totalDist ? dist['below5'] / totalDist : 0
+    if (drama.rating >= 8 && below5Ratio >= 0.3) {
+      return { polarized: true, reason: `MDL 평점 ${drama.rating}/10 vs 5점 미만 리뷰 ${Math.round(below5Ratio * 100)}%` }
+    }
+    if (posRatio >= 0.3 && negRatio >= 0.3 && Math.abs(posRatio - negRatio) < 0.25) {
+      return { polarized: true, reason: `댓글 긍정 ${Math.round(posRatio * 100)}% vs 부정 ${Math.round(negRatio * 100)}%` }
+    }
+    return { polarized: false }
+  }
+
   const analyses: MdlDramaAnalysis[] = dramas.map((d, i) => {
     const breakdown = buildRatingBreakdown(d.reviews)
     const deep = deepResults[i]
+    const { polarized, reason: polarizedReason } = detectPolarized(d, breakdown, deep.sentiment.positiveRatio, deep.sentiment.negativeRatio)
 
     const repReviews = [...d.reviews]
       .sort((a, b) => b.helpful - a.helpful)
@@ -163,6 +180,8 @@ export function analyzeMdlDramas(dramas: MdlDrama[]): MdlSummary {
       reviewDebates: deep.commentDebates,
       popularityReason: buildPopularityReason(d, breakdown),
       representativeReviews: repReviews,
+      polarized,
+      polarizedReason,
     }
   })
 

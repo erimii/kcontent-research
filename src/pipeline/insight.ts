@@ -246,17 +246,7 @@ export function generateKoreanInsights(args: {
     })
   }
 
-  // 5. 서브레딧별 특성 (옵션)
-  if (subredditInsights.length >= 2) {
-    const lines = subredditInsights.slice(0, 4).map((s) =>
-      `r/${s.subreddit} (${s.characteristic}, ${s.postCount}건, 주 행동: ${BEHAVIOR_LABEL[s.topBehavior]})`
-    )
-    out.push({
-      category: 'subreddit',
-      text: `커뮤니티별 성격이 명확합니다 — ${subredditInsights.slice(0, 3).map((s) => `r/${s.subreddit}는 ${BEHAVIOR_LABEL[s.topBehavior]} 중심`).join(', ')}.`,
-      evidence: lines,
-    })
-  }
+  // (이전 #5 '서브레딧별 특성' 카테고리는 별도의 '서브레딧별 특성' 카드와 중복되어 제거)
 
-  return out.slice(0, 5)
+  return out.slice(0, 4)
 }

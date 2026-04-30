@@ -16,7 +16,8 @@ import { runPipeline } from './pipeline/index.js'
 import { demoRedditPosts } from './demo-data.js'
 import { analyzeMdlDramas } from './pipeline/mdlAnalysis.js'
 import { buildGTrendsSummary } from './pipeline/gtrendsAnalysis.js'
-import type { MdlSummary, GTrendsSummary } from './types/index.js'
+import { buildYoutubeSummary } from './pipeline/youtubeAnalysis.js'
+import type { MdlSummary, GTrendsSummary, YoutubeSummary } from './types/index.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -221,6 +222,10 @@ app.get('/api/newsletter/:id', (req, res) => {
     const gtCache = getMdlCache<GTrendsSummary>('us_daily_v1')
     const gt = gtCache?.data
 
+    // YouTube 캐시
+    const ytCache = getMdlCache<YoutubeSummary>('youtube_buzz_v1')
+    const yt = ytCache?.data
+
     // 서브레딧 mini
     const subInsights = (r.subredditInsights || []) as any[]
 
@@ -357,6 +362,48 @@ app.get('/api/newsletter/:id', (req, res) => {
         </table>
       </td></tr>` : ''}
 
+      <!-- YouTube SNS 버즈 -->
+      ${yt && yt.totalVideos > 0 ? `
+      <tr><td style="background:#fff;padding:24px 36px;border-left:1px solid #e0e4ef;border-right:1px solid #e0e4ef">
+        <div style="font-size:14px;font-weight:700;color:#1a1a2e;margin-bottom:6px;padding-bottom:8px;border-bottom:2px solid #f0f2f8">▶️ SNS 버즈 분석 (YouTube)</div>
+        <div style="font-size:11px;color:#9ba3bf;margin-bottom:12px">${yt.totalVideos}개 영상 · 댓글 ${yt.totalComments}개 분석</div>
+
+        <div style="padding:10px 12px;background:#fef5f5;border-left:3px solid #ef4444;border-radius:4px;margin-bottom:8px;font-size:12px;line-height:1.6">
+          ${escNl(yt.oneLineSummary)}
+        </div>
+        <div style="padding:8px 12px;background:#fff7f7;border-left:3px solid #ef4444;border-radius:4px;margin-bottom:8px;font-size:11px;line-height:1.55;color:#3a4163">
+          <strong style="color:#ef4444">🔄 버즈 흐름:</strong> ${escNl(yt.buzzInsight)}
+        </div>
+        <div style="padding:8px 12px;background:#fff7f7;border-left:3px solid #ef4444;border-radius:4px;margin-bottom:12px;font-size:11px;line-height:1.55;color:#3a4163">
+          <strong style="color:#ef4444">📡 팬덤 → 외부 확산:</strong> ${escNl(yt.fandomFlowInsight)}
+        </div>
+
+        <!-- TOP 3 영상 -->
+        ${(yt.topVideos || []).slice(0, 3).map((v: any, i: number) => `
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border:1px solid #e8eaf2;border-radius:6px;margin-bottom:6px">
+            <tr><td style="padding:10px 12px">
+              <a href="https://www.youtube.com/watch?v=${escNl(v.id)}" style="font-size:12px;font-weight:700;color:#1a1a2e;text-decoration:none">
+                <span style="color:#ef4444;margin-right:5px">#${i + 1}</span>${escNl((v.title || '').slice(0, 100))}
+              </a>
+              <div style="font-size:10px;color:#9ba3bf;margin-top:3px">
+                ${escNl(v.channel || '')}${v.isOfficial ? ' · ✓공식' : ''} · 👁 ${(v.views || 0).toLocaleString()}${v.likes ? ' · 👍 ' + v.likes.toLocaleString() : ''}
+              </div>
+            </td></tr>
+          </table>`).join('')}
+
+        <!-- 콘텐츠 유형 -->
+        ${(yt.contentTypeStats || []).length > 0 ? `
+          <div style="margin-top:8px;font-size:11px;color:#5d6680">
+            <strong>콘텐츠 유형:</strong> ${(yt.contentTypeStats || []).slice(0, 5).map((c: any) => `${escNl(c.label)} <strong>${c.count}</strong>`).join(' · ')}
+          </div>` : ''}
+
+        <!-- 댓글 반응 패턴 -->
+        ${(yt.reactionPatterns || []).length > 0 ? `
+          <div style="margin-top:6px;font-size:11px;color:#5d6680">
+            <strong>댓글 반응:</strong> ${(yt.reactionPatterns || []).slice(0, 4).map((rp: any) => `${escNl(rp.label)} <strong>${rp.count}</strong>`).join(' · ')}
+          </div>` : ''}
+      </td></tr>` : ''}
+
       <!-- Google Trends — 북미 거시 + K-콘텐츠 비교 -->
       ${gt ? `
       <tr><td style="background:#fff;padding:24px 36px;border-left:1px solid #e0e4ef;border-right:1px solid #e0e4ef">
@@ -414,7 +461,7 @@ app.get('/api/newsletter/:id', (req, res) => {
       <!-- Footer -->
       <tr><td style="background:#fff;padding:20px 36px;border:1px solid #e0e4ef;border-top:none;border-radius:0 0 16px 16px;text-align:center;color:#9ba3bf;font-size:11px;line-height:1.5">
         K-Content Intelligence Dashboard · 자동 생성 리포트 · ${now}<br>
-        <span style="font-size:10px">소스: ${(r.sourceSummary || []).map((s: any) => `${escNl(s.source)}(${s.itemCount})`).join(', ')}${mdl ? ` · MDL(${(mdl.dramas || []).length} 드라마)` : ''}${gt ? ` · GTrends(${gt.totalItems} 트렌드)` : ''}</span>
+        <span style="font-size:10px">소스: ${(r.sourceSummary || []).map((s: any) => `${escNl(s.source)}(${s.itemCount})`).join(', ')}${mdl ? ` · MDL(${(mdl.dramas || []).length} 드라마)` : ''}${gt ? ` · GTrends(${gt.totalItems} 트렌드)` : ''}${yt ? ` · YouTube(${yt.totalVideos} 영상)` : ''}</span>
       </td></tr>
 
     </table>
@@ -656,6 +703,61 @@ app.post('/api/gtrends/refresh', async (req, res) => {
   } catch (e) {
     console.error('[GTrends] 오류:', e)
     saveCrawlLog('gtrends', 0, 'failed', String(e))
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+// ============================================================
+// YouTube SNS 버즈 분석
+// ============================================================
+const YT_CACHE_KEY = 'youtube_buzz_v1'
+const YT_CACHE_TTL_SEC = 3 * 3600  // 3시간
+
+app.get('/api/youtube', (_req, res) => {
+  try {
+    const cached = getMdlCache<YoutubeSummary>(YT_CACHE_KEY)
+    if (!cached) return res.json({ ok: true, summary: null, cached: false })
+    res.json({
+      ok: true,
+      summary: { ...cached.data, cached: true, fetchedAt: cached.fetchedAt, expiresAt: cached.expiresAt },
+      cached: true,
+    })
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+app.post('/api/youtube/refresh', async (req, res) => {
+  try {
+    const force = req.body?.force === true
+    if (!force) {
+      const cached = getMdlCache<YoutubeSummary>(YT_CACHE_KEY)
+      if (cached) {
+        return res.json({
+          ok: true,
+          summary: { ...cached.data, cached: true, fetchedAt: cached.fetchedAt, expiresAt: cached.expiresAt },
+          cached: true,
+        })
+      }
+    }
+
+    console.log('[YouTube] 새 크롤링 시작...')
+    const t0 = Date.now()
+    const summary = await buildYoutubeSummary({ topN: 30, commentsPerVideo: 30 })
+    saveCrawlLog('youtube', summary.totalVideos, summary.totalVideos > 0 ? 'success' : 'failed')
+    if (summary.totalVideos === 0) {
+      return res.status(503).json({ ok: false, error: 'YouTube 크롤링 결과 0개' })
+    }
+    const ttl = setMdlCache(YT_CACHE_KEY, summary, YT_CACHE_TTL_SEC)
+    console.log(`[YouTube] 완료 (${((Date.now() - t0) / 1000).toFixed(1)}s) - ${summary.totalVideos}개 영상, 댓글 ${summary.totalComments}개`)
+    res.json({
+      ok: true,
+      summary: { ...summary, cached: false, fetchedAt: ttl.fetchedAt, expiresAt: ttl.expiresAt },
+      cached: false,
+    })
+  } catch (e) {
+    console.error('[YouTube] 오류:', e)
+    saveCrawlLog('youtube', 0, 'failed', String(e))
     res.status(500).json({ ok: false, error: String(e) })
   }
 })

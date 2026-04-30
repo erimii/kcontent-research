@@ -68,6 +68,8 @@ const state = {
   mdlLoading: false,
   gtrendsSummary: null,
   gtrendsLoading: false,
+  youtubeSummary: null,
+  youtubeLoading: false,
 }
 
 // ============================================================
@@ -230,65 +232,38 @@ function renderKoreanInsights(r) {
 
 function renderTrends(r) {
   const t = r.trends
-  if (!t) return ''
-  const sent = t.sentiment
-  const beh = t.behavior
-
-  const sentBar = (label, val, color) => `
-    <div style="margin-bottom:8px">
-      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-bottom:3px">
-        <span>${label}</span><span>${pctText(val)}</span>
-      </div>
-      <div style="height:6px;background:rgba(255,255,255,0.05);border-radius:3px;overflow:hidden">
-        <div style="height:100%;width:${(val*100).toFixed(1)}%;background:${color}"></div>
-      </div>
-    </div>`
-
-  const behBar = (key, val) => sentBar(BEHAVIOR_LABEL_KO[key], val, '#3b82f6')
+  if (!t || !t.content) return ''
+  const c = t.content
 
   return `
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;align-items:start">
-      <div class="card">
-        <div class="card-header"><div class="card-title"><i class="fas fa-fire" style="color:#ef4444"></i> 콘텐츠 트렌드</div></div>
-        <div class="card-body" style="padding:12px 14px">
-          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:6px">콘텐츠 TOP</div>
-          ${(t.content.topContents || []).slice(0,5).map(c => `
-            <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0">
-              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(c.title)}</span>
-              <span style="color:var(--text-muted)">${c.count}</span>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title"><i class="fas fa-fire" style="color:#ef4444"></i> 콘텐츠 트렌드 — 작품·배우·키워드</div>
+        <span style="font-size:11px;color:var(--text-muted)">전체 포스트 빈도 기준</span>
+      </div>
+      <div class="card-body" style="padding:14px;display:grid;grid-template-columns:1fr 1fr 2fr;gap:18px">
+        <div>
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:6px">📺 콘텐츠 TOP</div>
+          ${(c.topContents || []).slice(0,8).map(it => `
+            <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
+              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(it.title)}</span>
+              <span style="color:var(--text-muted)">${it.count}</span>
             </div>`).join('') || '<div style="font-size:11px;color:var(--text-muted)">없음</div>'}
-          ${(t.content.topActors || []).length ? `
-            <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin:10px 0 6px">배우</div>
-            ${t.content.topActors.slice(0,3).map(a => `
-              <div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0">
-                <span>${escHtml(a.name)}</span><span style="color:var(--text-muted)">${a.count}</span>
-              </div>`).join('')}` : ''}
-          ${(t.content.topKeywords || []).length ? `
-            <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin:10px 0 6px">키워드</div>
-            <div style="display:flex;flex-wrap:wrap;gap:4px">
-              ${t.content.topKeywords.slice(0,8).map(k => `<span class="insight-chip" style="font-size:10px">${escHtml(k.keyword)} ${k.count}</span>`).join('')}
-            </div>` : ''}
         </div>
-      </div>
-
-      <div class="card">
-        <div class="card-header"><div class="card-title"><i class="fas fa-smile" style="color:#10b981"></i> 감정 트렌드</div></div>
-        <div class="card-body" style="padding:14px">
-          ${sentBar('긍정', sent.positiveRatio, '#10b981')}
-          ${sentBar('중립', sent.neutralRatio, '#6b7280')}
-          ${sentBar('부정', sent.negativeRatio, '#ef4444')}
-          <div style="font-size:10px;color:var(--text-muted);margin-top:8px;text-align:center">총 ${sent.total}개 게시글</div>
+        <div>
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:6px">🌟 배우 TOP</div>
+          ${(c.topActors || []).length ? c.topActors.slice(0,8).map(a => `
+            <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
+              <span>${escHtml(a.name)}</span>
+              <span style="color:var(--text-muted)">${a.count}</span>
+            </div>`).join('') : '<div style="font-size:11px;color:var(--text-muted)">없음</div>'}
         </div>
-      </div>
-
-      <div class="card">
-        <div class="card-header"><div class="card-title"><i class="fas fa-comments" style="color:#3b82f6"></i> 행동 트렌드</div></div>
-        <div class="card-body" style="padding:14px">
-          ${behBar('discussion', beh.ratios.discussion)}
-          ${behBar('review', beh.ratios.review)}
-          ${behBar('recommendation', beh.ratios.recommendation)}
-          ${behBar('question', beh.ratios.question)}
-          <div style="font-size:10px;color:var(--text-muted);margin-top:8px;text-align:center">총 ${beh.total}개 게시글</div>
+        <div>
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:6px">🔤 키워드 TOP</div>
+          ${(c.topKeywords || []).length ? `
+            <div style="display:flex;flex-wrap:wrap;gap:5px">
+              ${c.topKeywords.slice(0,15).map(k => `<span class="insight-chip" style="font-size:11px">${escHtml(k.keyword)} <strong>${k.count}</strong></span>`).join('')}
+            </div>` : '<div style="font-size:11px;color:var(--text-muted)">없음</div>'}
         </div>
       </div>
     </div>`
@@ -391,37 +366,9 @@ function renderGTrendsCard(s) {
       </div>
       <div class="card-body" style="padding:0">
 
-        <!-- ── 1단계: 북미 거시 트렌드 ─────────────────── -->
-        <div style="padding:16px 18px;border-bottom:1px solid rgba(255,255,255,0.05)">
-          <div style="font-size:11px;color:#22d3ee;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">① 북미 거시 트렌드</div>
-          <div style="font-size:13px;line-height:1.6;color:var(--text-primary);margin-bottom:10px">${escHtml(s.oneLineSummary)}</div>
-
-          <!-- 카테고리 분포 막대 -->
-          <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:rgba(255,255,255,0.05);margin-bottom:6px">${catBar}</div>
-          <div style="display:flex;flex-wrap:wrap;gap:6px;font-size:10px;margin-bottom:12px">
-            ${s.categoryStats.map((c) => `
-              <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 7px;background:rgba(255,255,255,0.04);border-radius:10px;color:var(--text-muted)">
-                <span style="width:7px;height:7px;border-radius:50%;background:${GT_CAT_COLOR[c.category] || '#9ca3af'}"></span>
-                ${escHtml(c.label)} ${c.count}
-              </span>`).join('')}
-          </div>
-
-          <!-- TOP 검색어 목록 -->
-          <div>
-            ${collapsibleSection('gt-top', s.topItems.map((it, i) => ({ it, i })), 5, ({ it, i }) => `
-              <div style="display:flex;align-items:center;gap:8px;padding:5px 9px;background:rgba(255,255,255,0.02);border-radius:4px;border-left:2px solid ${GT_CAT_COLOR[it.category] || '#9ca3af'};margin-bottom:4px">
-                <span style="font-size:10px;color:var(--text-muted);min-width:14px">${i+1}</span>
-                <div style="flex:1;min-width:0;font-size:11.5px;line-height:1.4">
-                  <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(it.title)}${it.isKContent ? ' <span style="color:#ef4444;font-size:10px">🇰🇷</span>' : ''}</div>
-                </div>
-                <span style="font-size:10px;color:${GT_CAT_COLOR[it.category] || '#9ca3af'};white-space:nowrap">${escHtml(it.traffic)}</span>
-              </div>`)}
-          </div>
-        </div>
-
-        <!-- ── 2단계: K-콘텐츠 트렌드 (Within Macro) ────── -->
+        <!-- ── ① K-콘텐츠 트렌드 (북미 내) — 사용자 목적 우선 노출 ─────── -->
         <div style="padding:16px 18px;border-bottom:1px solid rgba(255,255,255,0.05);background:rgba(239,68,68,0.03)">
-          <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">② K-콘텐츠 트렌드 (북미 내)</div>
+          <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">① K-콘텐츠 트렌드 (북미 내)</div>
           <div style="font-size:13px;line-height:1.6;color:var(--text-primary);margin-bottom:10px">${escHtml(s.kInsight)}</div>
           ${s.kItems.length > 0 ? `
             <div style="display:flex;flex-direction:column;gap:5px">
@@ -436,11 +383,213 @@ function renderGTrendsCard(s) {
             </div>` : `<div style="font-size:11px;color:var(--text-muted);font-style:italic">— 일간 TOP 진입 K-콘텐츠 키워드 없음</div>`}
         </div>
 
-        <!-- ── 3단계: 비교 인사이트 ──────────────────── -->
-        <div style="padding:16px 18px;background:rgba(34,211,238,0.04)">
-          <div style="font-size:11px;color:#22d3ee;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">③ 트렌드 비교 인사이트</div>
+        <!-- ── ② 비교 인사이트 ──────────────────── -->
+        <div style="padding:16px 18px;border-bottom:1px solid rgba(255,255,255,0.05);background:rgba(34,211,238,0.04)">
+          <div style="font-size:11px;color:#22d3ee;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">② 트렌드 비교 인사이트</div>
           <div style="font-size:13px;line-height:1.65;color:var(--text-primary)">${escHtml(s.comparison)}</div>
         </div>
+
+        <!-- ── ③ 북미 거시 트렌드 (보조 컨텍스트, 기본 접힘) ─────── -->
+        <div data-collapse-id="gt-macro" style="padding:14px 18px">
+          <div style="font-size:11px;color:#9ca3af;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">③ 북미 거시 트렌드 <span style="color:var(--text-muted);font-weight:400;text-transform:none">— 보조 컨텍스트</span></div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">${escHtml(s.oneLineSummary)}</div>
+          <div data-collapse-extra style="display:none">
+            <!-- 카테고리 분포 막대 -->
+            <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:rgba(255,255,255,0.05);margin-bottom:6px;margin-top:8px">${catBar}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;font-size:10px;margin-bottom:12px">
+              ${s.categoryStats.map((c) => `
+                <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 7px;background:rgba(255,255,255,0.04);border-radius:10px;color:var(--text-muted)">
+                  <span style="width:7px;height:7px;border-radius:50%;background:${GT_CAT_COLOR[c.category] || '#9ca3af'}"></span>
+                  ${escHtml(c.label)} ${c.count}
+                </span>`).join('')}
+            </div>
+            <!-- TOP 검색어 (5개만 표시, 클릭하면 모두 펼침은 별도 토글로) -->
+            <div>
+              ${s.topItems.slice(0, 10).map((it, i) => `
+                <div style="display:flex;align-items:center;gap:8px;padding:5px 9px;background:rgba(255,255,255,0.02);border-radius:4px;border-left:2px solid ${GT_CAT_COLOR[it.category] || '#9ca3af'};margin-bottom:4px">
+                  <span style="font-size:10px;color:var(--text-muted);min-width:14px">${i+1}</span>
+                  <div style="flex:1;min-width:0;font-size:11.5px;line-height:1.4">
+                    <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(it.title)}${it.isKContent ? ' <span style="color:#ef4444;font-size:10px">🇰🇷</span>' : ''}</div>
+                  </div>
+                  <span style="font-size:10px;color:${GT_CAT_COLOR[it.category] || '#9ca3af'};white-space:nowrap">${escHtml(it.traffic)}</span>
+                </div>`).join('')}
+              <div style="font-size:10px;color:var(--text-muted);text-align:center;padding:6px">전체 ${s.topItems.length}개 중 상위 10개 표시</div>
+            </div>
+          </div>
+          <button onclick="toggleCollapse('gt-macro', this)" data-collapse-label="펼쳐서 거시 트렌드 보기 (${s.topItems.length}개) ▼"
+            style="display:block;width:100%;margin-top:6px;padding:6px 10px;background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.1);border-radius:5px;font-size:10px;color:var(--text-muted);cursor:pointer">
+            펼쳐서 거시 트렌드 보기 (${s.topItems.length}개) ▼
+          </button>
+        </div>
+
+      </div>
+    </div>`
+}
+
+// ============================================================
+// YouTube SNS 버즈 카드
+// ============================================================
+async function loadYoutubeSummary(force = false) {
+  const slot = document.getElementById('youtube-section')
+  if (!slot) return
+  if (state.youtubeLoading) return
+  state.youtubeLoading = true
+
+  if (!force) {
+    try {
+      const r = await fetch('/api/youtube').then(x => x.json())
+      if (r.ok && r.summary) {
+        state.youtubeSummary = r.summary
+        slot.innerHTML = renderYoutubeCard(r.summary)
+        state.youtubeLoading = false
+        return
+      }
+    } catch {}
+  }
+
+  slot.innerHTML = renderYoutubePlaceholder('loading')
+  try {
+    const r = await fetch('/api/youtube/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ force }),
+    }).then(x => x.json())
+    if (r.ok && r.summary) {
+      state.youtubeSummary = r.summary
+      slot.innerHTML = renderYoutubeCard(r.summary)
+    } else {
+      slot.innerHTML = renderYoutubePlaceholder('error', r.error)
+    }
+  } catch (e) {
+    slot.innerHTML = renderYoutubePlaceholder('error', String(e))
+  }
+  state.youtubeLoading = false
+}
+
+function renderYoutubePlaceholder(mode, errMsg) {
+  if (mode === 'loading') {
+    return `
+      <div class="card">
+        <div class="card-header"><div class="card-title"><i class="fab fa-youtube" style="color:#ef4444"></i> SNS 버즈 분석 (YouTube)</div></div>
+        <div class="card-body" style="padding:30px;text-align:center;color:var(--text-muted)">
+          <div class="spinner" style="margin:0 auto 12px"></div>
+          YouTube 6개 해시태그 검색 + 영상 30개 + 댓글 ~900개 수집 중... (~10초)
+        </div>
+      </div>`
+  }
+  if (mode === 'error') {
+    return `
+      <div class="card">
+        <div class="card-header"><div class="card-title"><i class="fab fa-youtube" style="color:#ef4444"></i> SNS 버즈 분석 (YouTube)</div></div>
+        <div class="card-body" style="padding:18px;color:var(--text-muted);font-size:12px">
+          크롤링 실패. <button class="btn btn-outline" style="padding:3px 10px;font-size:11px;margin-left:6px" onclick="loadYoutubeSummary(true)">재시도</button>
+          ${errMsg ? `<div style="margin-top:8px;font-family:monospace;font-size:10px;opacity:0.6">${escHtml(errMsg.slice(0, 200))}</div>` : ''}
+        </div>
+      </div>`
+  }
+  return ''
+}
+
+const YT_CONTENT_COLOR = {
+  scene: '#ef4444', meme: '#f59e0b', edit: '#8b5cf6', reaction: '#ec4899',
+  review: '#3b82f6', actor: '#10b981', other: '#6b7280',
+}
+
+const YT_REACTION_COLOR = {
+  emotion: '#ef4444', empathy: '#f59e0b', info_request: '#3b82f6',
+  praise: '#10b981', criticism: '#6b7280',
+}
+
+function fmtViews(n) {
+  if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1) + 'B'
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
+  if (n >= 1_000) return (n / 1_000).toFixed(0) + 'K'
+  return String(n)
+}
+
+function renderYoutubeCard(s) {
+  if (!s || s.totalVideos === 0) return ''
+  const fetchedDate = new Date(s.fetchedAt)
+  const ago = Math.round((Date.now() - fetchedDate.getTime()) / 60000)
+  const cacheLabel = s.cached
+    ? `<span style="font-size:10px;color:var(--text-muted)">캐시 · ${ago}분 전</span>`
+    : `<span style="font-size:10px;color:#10b981">방금 가져옴</span>`
+
+  return `
+    <div class="card" style="border-left:3px solid #ef4444">
+      <div class="card-header">
+        <div class="card-title"><i class="fab fa-youtube" style="color:#ef4444"></i> SNS 버즈 분석 (YouTube · ${s.totalVideos}개 영상 · 댓글 ${s.totalComments}개)</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          ${cacheLabel}
+          <button class="btn btn-outline" style="padding:3px 10px;font-size:11px" onclick="loadYoutubeSummary(true)">
+            <i class="fas fa-sync-alt"></i> 새로고침
+          </button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0">
+
+        <!-- 한 줄 요약 + 인사이트 -->
+        <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.05);background:rgba(239,68,68,0.04)">
+          <div style="font-size:12px;line-height:1.6;color:var(--text-primary);margin-bottom:8px">${escHtml(s.oneLineSummary)}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px"><strong style="color:#ef4444">🔄 버즈 흐름:</strong> ${escHtml(s.buzzInsight)}</div>
+          <div style="font-size:11px;color:var(--text-muted)"><strong style="color:#ef4444">📡 팬덤 → 외부 확산:</strong> ${escHtml(s.fandomFlowInsight)}</div>
+        </div>
+
+        <!-- 1. 인기 콘텐츠 TOP -->
+        <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.05)">
+          <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:8px">① 인기 콘텐츠 TOP</div>
+          ${collapsibleSection('yt-top', s.topVideos, 5, (v) => `
+            <a href="https://www.youtube.com/watch?v=${escHtml(v.id)}" target="_blank" rel="noopener noreferrer"
+               style="display:flex;gap:10px;padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:4px;border-left:2px solid ${YT_CONTENT_COLOR[v.contentType] || '#6b7280'};margin-bottom:5px;text-decoration:none;color:inherit">
+              ${v.thumbnail ? `<img src="${escHtml(v.thumbnail)}" style="width:80px;height:45px;object-fit:cover;border-radius:3px;flex-shrink:0">` : ''}
+              <div style="flex:1;min-width:0">
+                <div style="font-size:12px;font-weight:600;line-height:1.4;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${escHtml(v.title)}</div>
+                <div style="font-size:10px;color:var(--text-muted);margin-top:3px">
+                  <span style="color:${YT_CONTENT_COLOR[v.contentType] || '#6b7280'}">${v.contentType}</span>
+                  · ${escHtml(v.channel)}${v.isOfficial ? ' <span style="color:#10b981">✓공식</span>' : ''}
+                  · 👁 ${fmtViews(v.views || 0)}${v.likes ? ' · 👍 ' + fmtViews(v.likes) : ''}
+                  ${v.publishedText ? ' · ' + escHtml(v.publishedText) : ''}
+                </div>
+              </div>
+            </a>`)}
+        </div>
+
+        <!-- 2. 콘텐츠 유형 분포 -->
+        <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.05)">
+          <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:8px">② 콘텐츠 유형 분포</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            ${(s.contentTypeStats || []).map(c => `
+              <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:rgba(255,255,255,0.03);border-radius:14px;font-size:11px;border-left:3px solid ${YT_CONTENT_COLOR[c.type] || '#6b7280'}">
+                ${escHtml(c.label)} <strong>${c.count}</strong> <span style="color:var(--text-muted);font-size:10px">(${fmtViews(c.totalViews)} views)</span>
+              </span>`).join('')}
+          </div>
+        </div>
+
+        <!-- 3. 발화 phrase TOP -->
+        ${(s.topPhrases || []).length > 0 ? `
+        <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.05)">
+          <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:8px">③ 발화 내용 (제목·설명 반복)</div>
+          <div style="display:flex;flex-wrap:wrap;gap:5px">
+            ${s.topPhrases.slice(0, 15).map(p => `<span class="insight-chip" style="font-size:11px">${escHtml(p.phrase)} <strong>${p.count}</strong></span>`).join('')}
+          </div>
+        </div>` : ''}
+
+        <!-- 4. 댓글 반응 패턴 -->
+        ${(s.reactionPatterns || []).length > 0 ? `
+        <div style="padding:14px 18px">
+          <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:8px">④ 댓글 반응 패턴</div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            ${s.reactionPatterns.map(rp => `
+              <div style="padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:4px;border-left:2px solid ${YT_REACTION_COLOR[rp.category] || '#6b7280'}">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">
+                  <span style="font-size:12px;font-weight:600">${escHtml(rp.label)}</span>
+                  <span style="font-size:10px;color:var(--text-muted)">${rp.count}건</span>
+                </div>
+                ${(rp.examples || []).slice(0, 1).map(ex => `
+                  <div style="font-size:10px;color:var(--text-muted);font-style:italic;line-height:1.4">"${escHtml(ex)}"</div>`).join('')}
+              </div>`).join('')}
+          </div>
+        </div>` : ''}
 
       </div>
     </div>`
@@ -560,13 +709,22 @@ function renderMdlDrama(a, idx) {
       <div style="display:flex;gap:14px;align-items:start">
         ${d.posterUrl ? `<img src="${d.posterUrl}" alt="${escHtml(d.title)}" style="width:80px;height:115px;object-fit:cover;border-radius:6px;flex-shrink:0">` : ''}
         <div style="flex:1;min-width:0">
-          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:4px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:4px;flex-wrap:wrap">
             <div style="font-size:14px;font-weight:700">
               <span style="color:#a78bfa;margin-right:6px">#${idx+1}</span>
               <a href="${d.url}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none">${escHtml(d.title)}</a>
+              ${a.polarized ? `
+                <span title="${escHtml(a.polarizedReason || '평가 분열')}"
+                      style="display:inline-block;margin-left:8px;padding:2px 8px;background:rgba(245,158,11,0.15);color:#f59e0b;font-size:10px;font-weight:700;border-radius:10px;border:1px solid rgba(245,158,11,0.3)">
+                  ⚠ 평가 분열
+                </span>` : ''}
             </div>
             <div style="font-size:13px;font-weight:700;color:#a78bfa;white-space:nowrap">⭐ ${d.rating.toFixed(1)}</div>
           </div>
+          ${a.polarized && a.polarizedReason ? `
+            <div style="font-size:10px;color:#f59e0b;margin-bottom:6px;padding:3px 8px;background:rgba(245,158,11,0.05);border-left:2px solid #f59e0b;border-radius:2px">
+              ${escHtml(a.polarizedReason)}
+            </div>` : ''}
           <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">
             ${d.year ? d.year + ' · ' : ''}${d.episodes ? d.episodes + '부작 · ' : ''}리뷰 ${d.reviewCount}개
           </div>
@@ -924,12 +1082,24 @@ function renderDashboard() {
       <div class="rank-score">${fmtScore(c.finalScore)}</div>
     </div>`
 
+  const kRatio = allContents.length ? Math.round(topK.length / allContents.length * 100) : 0
+  const sourceLine = (r.sourceSummary || []).map(s => `${s.source} ${s.itemCount}`).join(' · ')
+
   return `
     <div class="page-header">
-      <div>
+      <div style="flex:1;min-width:0">
         <div class="page-title">📊 대시보드</div>
-        <div class="page-sub">
-          ${r.reportType === 'daily' ? '일간' : '주간'} 리포트 · ${fmtDateFull(r.generatedAt)}
+        <div class="page-sub" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+          <span>${r.reportType === 'daily' ? '일간' : '주간'} 리포트</span>
+          <span style="opacity:0.4">·</span>
+          <span>${fmtDateFull(r.generatedAt)}</span>
+          ${allContents.length > 0 ? `
+            <span style="opacity:0.4">·</span>
+            <span style="color:var(--accent-pink)">🇰🇷 K-콘텐츠 ${kRatio}%</span>
+            <span style="opacity:0.4">(${topK.length}/${allContents.length})</span>` : ''}
+          ${sourceLine ? `
+            <span style="opacity:0.4">·</span>
+            <span style="color:var(--text-muted);font-size:11px">📡 ${escHtml(sourceLine)}</span>` : ''}
         </div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -947,35 +1117,10 @@ function renderDashboard() {
 
     <div style="padding:20px 28px;display:flex;flex-direction:column;gap:20px">
 
-      <!-- Stats -->
-      <div class="stat-grid">
-        <div class="stat-card">
-          <div class="stat-label">🎬 총 콘텐츠</div>
-          <div class="stat-value" style="color:var(--accent-blue)">${allContents.length}</div>
-          <div class="stat-change">중복 제거 후</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">🇰🇷 K-콘텐츠</div>
-          <div class="stat-value" style="color:var(--accent-pink)">${topK.length}</div>
-          <div class="stat-change">전체의 ${allContents.length ? Math.round(topK.length/allContents.length*100) : 0}%</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">💡 인사이트</div>
-          <div class="stat-value" style="color:var(--accent-green)">${r.insights?.length || 0}</div>
-          <div class="stat-change">자동 생성</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">📡 수집 소스</div>
-          <div class="stat-value" style="color:var(--accent-orange)">${r.sourceSummary?.length || 0}</div>
-          <div class="stat-change">${r.sourceSummary?.map(s => `${s.source}(${s.itemCount})`).join(' · ') || '-'}</div>
-        </div>
-      </div>
-
-      <div id="gtrends-section"></div>
+      <div id="youtube-section"></div>
       ${renderKoreanInsights(r)}
       ${renderTrends(r)}
       ${renderSentimentTopics(r)}
-      ${renderSubredditInsights(r)}
       <div id="mdl-section"></div>
       <script>if(typeof loadMdlSummary==='function')loadMdlSummary()</script>
 
@@ -1028,25 +1173,7 @@ function renderDashboard() {
 
       ${renderDeepAnalysis(r)}
 
-      <!-- Insights -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title"><i class="fas fa-lightbulb" style="color:var(--accent-orange)"></i> 자동 인사이트</div>
-          <span style="font-size:11px;color:var(--text-muted)">${r.insights?.length || 0}개 생성됨</span>
-        </div>
-        <div class="card-body">
-          ${collapsibleSection('auto-insights', (r.insights || []), 3, ins => `
-            <div class="insight-item ${ins.category}">
-              <div class="insight-icon">${insightIcon(ins.category)}</div>
-              <div style="flex:1">
-                <div class="insight-text">${escHtml(ins.text)}</div>
-                <div class="insight-evidence">
-                  ${(ins.evidence || []).map(e => `<span class="insight-chip">${escHtml(e)}</span>`).join('')}
-                </div>
-              </div>
-            </div>`)}
-        </div>
-      </div>
+      <div id="gtrends-section"></div>
 
     </div>`
 }
@@ -1264,11 +1391,13 @@ function renderRanking() {
 // Page: Crawl
 // ============================================================
 function renderCrawl() {
-  if (!window._selectedSources) window._selectedSources = { reddit: true, mdl: true, gtrends: true }
+  if (!window._selectedSources) window._selectedSources = { reddit: true, mdl: true, gtrends: true, youtube: true }
   const sel = window._selectedSources
   if (sel.gtrends === undefined) sel.gtrends = true
+  if (sel.youtube === undefined) sel.youtube = true
   const mdlForce = window._mdlForce || false
   const gtrendsForce = window._gtrendsForce || false
+  const youtubeForce = window._youtubeForce || false
 
   // 캐시 hint helper
   const cacheHintFor = (summary, ttlLabel) => {
@@ -1281,6 +1410,7 @@ function renderCrawl() {
   }
   const mdlCacheHint = cacheHintFor(state.mdlSummary, '캐시 사용')
   const gtrendsCacheHint = cacheHintFor(state.gtrendsSummary, '캐시 사용')
+  const youtubeCacheHint = cacheHintFor(state.youtubeSummary, '캐시 사용')
 
   const sourceCard = (key, color, icon, name, desc, extra) => `
     <label class="card" style="padding:14px;border-color:${sel[key] ? color + '55' : 'rgba(255,255,255,0.06)'};cursor:pointer;opacity:${sel[key] ? '1' : '0.5'};transition:all 0.15s">
@@ -1308,7 +1438,14 @@ function renderCrawl() {
       캐시 무시하고 강제 새로고침
     </label>` : ''
 
-  const anySelected = sel.reddit || sel.mdl || sel.gtrends
+  const youtubeExtra = sel.youtube ? `
+    <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted);cursor:pointer">
+      <input type="checkbox" ${youtubeForce ? 'checked' : ''} onchange="toggleYoutubeForce()"
+             style="width:13px;height:13px;cursor:pointer;accent-color:#ef4444">
+      캐시 무시하고 강제 새로고침
+    </label>` : ''
+
+  const anySelected = sel.reddit || sel.mdl || sel.gtrends || sel.youtube
 
   return `
     <div class="page-header">
@@ -1325,7 +1462,7 @@ function renderCrawl() {
           <span style="font-size:11px;color:var(--text-muted)">소스 선택 후 실행</span>
         </div>
         <div class="card-body">
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
             ${sourceCard(
               'reddit', '#ff6534', 'fab fa-reddit', 'Reddit',
               'r/kdramas, r/kdrama, r/kdramarecommends, r/korean · hot+new · 1주 이내',
@@ -1338,8 +1475,13 @@ function renderCrawl() {
             )}
             ${sourceCard(
               'gtrends', '#22d3ee', 'fas fa-globe-americas', 'Google Trends',
-              `북미 일간 트렌드 RSS + K-콘텐츠 비교 · ${gtrendsCacheHint}`,
+              `북미 일간 트렌드 페이지 7개 병합 · ${gtrendsCacheHint}`,
               gtrendsExtra
+            )}
+            ${sourceCard(
+              'youtube', '#ef4444', 'fab fa-youtube', 'YouTube SNS 버즈',
+              `해시태그 6개 + 영상 30개 + 댓글 ~900개 · ${youtubeCacheHint}`,
+              youtubeExtra
             )}
           </div>
 
@@ -1587,13 +1729,14 @@ function renderNoReport() {
 function navigateTo(page) {
   state.page = page
   render()
-  if (page === 'crawl')    { setTimeout(loadLogs, 100); setTimeout(prefetchMdlCache, 100); setTimeout(prefetchGtrendsCache, 100) }
+  if (page === 'crawl')    { setTimeout(loadLogs, 100); setTimeout(prefetchMdlCache, 100); setTimeout(prefetchGtrendsCache, 100); setTimeout(prefetchYoutubeCache, 100) }
   if (page === 'history')  setTimeout(loadHistory, 100)
   if (page === 'schedule') setTimeout(loadSchedule, 100)
   if (page === 'reddit')   { window._redditSub = '전체'; renderPage() }
   if (page === 'dashboard' && typeof loadMdlSummary === 'function') {
     setTimeout(() => loadMdlSummary(false), 100)
     setTimeout(() => loadGTrendsSummary(false), 100)
+    setTimeout(() => loadYoutubeSummary(false), 100)
   }
 }
 
@@ -1614,6 +1757,17 @@ async function prefetchGtrendsCache() {
     const r = await fetch('/api/gtrends').then(x => x.json())
     if (r.ok && r.summary) {
       state.gtrendsSummary = r.summary
+      if (state.page === 'crawl') renderPage()
+    }
+  } catch {}
+}
+
+async function prefetchYoutubeCache() {
+  if (state.youtubeSummary) return
+  try {
+    const r = await fetch('/api/youtube').then(x => x.json())
+    if (r.ok && r.summary) {
+      state.youtubeSummary = r.summary
       if (state.page === 'crawl') renderPage()
     }
   } catch {}
@@ -1643,7 +1797,7 @@ function updateSourceCard(id) {
 }
 
 function toggleSource(key) {
-  if (!window._selectedSources) window._selectedSources = { reddit: true, mdl: true, gtrends: true }
+  if (!window._selectedSources) window._selectedSources = { reddit: true, mdl: true, gtrends: true, youtube: true }
   window._selectedSources[key] = !window._selectedSources[key]
   if (state.page === 'crawl') renderPage()
 }
@@ -1655,6 +1809,11 @@ function toggleMdlForce() {
 
 function toggleGtrendsForce() {
   window._gtrendsForce = !window._gtrendsForce
+  if (state.page === 'crawl') renderPage()
+}
+
+function toggleYoutubeForce() {
+  window._youtubeForce = !window._youtubeForce
   if (state.page === 'crawl') renderPage()
 }
 
@@ -1690,11 +1849,12 @@ async function runDemo(type = 'daily') {
 async function startCrawl() {
   if (state.crawling) return
   const type = window._crawlType || 'daily'
-  const sel = window._selectedSources || { reddit: true, mdl: true, gtrends: true }
+  const sel = window._selectedSources || { reddit: true, mdl: true, gtrends: true, youtube: true }
   const mdlForce = !!window._mdlForce
   const gtrendsForce = !!window._gtrendsForce
+  const youtubeForce = !!window._youtubeForce
 
-  if (!sel.reddit && !sel.mdl && !sel.gtrends) {
+  if (!sel.reddit && !sel.mdl && !sel.gtrends && !sel.youtube) {
     toast('최소 한 개 소스를 선택해주세요', 'error')
     return
   }
@@ -1721,6 +1881,7 @@ async function startCrawl() {
   if (sel.reddit) labels.push('Reddit')
   if (sel.mdl) labels.push('MDL' + (mdlForce ? ' (강제)' : ''))
   if (sel.gtrends) labels.push('GTrends' + (gtrendsForce ? ' (강제)' : ''))
+  if (sel.youtube) labels.push('YouTube' + (youtubeForce ? ' (강제)' : ''))
   addLog(`크롤링 시작: ${labels.join(' + ')} (${type})`, 'info')
 
   // 두 소스를 병렬 처리
@@ -1800,6 +1961,35 @@ async function startCrawl() {
       } catch (e) {
         addLog(`[GTrends] ❌ 연결 오류: ${e.message}`, 'error')
         return { source: 'gtrends', ok: false, error: e.message }
+      }
+    })())
+  }
+
+  if (sel.youtube) {
+    tasks.push((async () => {
+      addLog(`[YouTube] 시작${youtubeForce ? ' (캐시 무시)' : ''}...`, 'info')
+      try {
+        const res = await fetch('/api/youtube/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ force: youtubeForce }),
+        }).then(x => x.json())
+        if (res.ok && res.summary) {
+          state.youtubeSummary = res.summary
+          const v = res.summary.totalVideos || 0
+          const c = res.summary.totalComments || 0
+          if (res.cached) {
+            addLog(`[YouTube] ✅ 캐시 사용 — 영상 ${v}개, 댓글 ${c}개`, 'success')
+          } else {
+            addLog(`[YouTube] ✅ 새 크롤링 완료 — 영상 ${v}개, 댓글 ${c}개`, 'success')
+          }
+          return { source: 'youtube', ok: true }
+        }
+        addLog(`[YouTube] ❌ ${res.error || '오류'}`, 'error')
+        return { source: 'youtube', ok: false, error: res.error }
+      } catch (e) {
+        addLog(`[YouTube] ❌ 연결 오류: ${e.message}`, 'error')
+        return { source: 'youtube', ok: false, error: e.message }
       }
     })())
   }
