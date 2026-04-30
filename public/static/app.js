@@ -1138,7 +1138,6 @@ function renderDashboard() {
       <div id="youtube-section"></div>
       ${renderKoreanInsights(r)}
       ${renderTrends(r)}
-      ${renderSentimentTopics(r)}
       <div id="mdl-section"></div>
       <script>if(typeof loadMdlSummary==='function')loadMdlSummary()</script>
 
