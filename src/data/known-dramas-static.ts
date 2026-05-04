@@ -12,10 +12,11 @@
 // 단어 1개짜리 일반 명사는 제외. 2단어 이상 또는 명백한 고유명만.
 export const KNOWN_DRAMAS_STATIC: string[] = [
   // 글로벌 메가히트 (Netflix·OTT)
+  // 단일 단어 일반 명사 제거: 'kingdom' (kingdom: ashin of the north 5단어 형태로 별도 보존),
+  // 'hierarchy', 'moving', 'agency' — 영어 일상어 false positive 위험
   'squid game',
   'all of us are dead',
   'hellbound',
-  'kingdom',
   'sweet home',
   'the glory',
   'mask girl',
@@ -30,7 +31,6 @@ export const KNOWN_DRAMAS_STATIC: string[] = [
   'daily dose of sunshine',
   'behind your touch',
   'the bequeathed',
-  'hierarchy',
   'mr plankton',
   'the trauma code',
   'light shop',
@@ -39,8 +39,6 @@ export const KNOWN_DRAMAS_STATIC: string[] = [
   'lovely runner',
   'queen of tears',
   'my dearest',
-  'moving',
-  'agency',
   'extraordinary attorney woo',
   'all of us are dead',
   'my demon',
@@ -80,10 +78,10 @@ export const KNOWN_DRAMAS_STATIC: string[] = [
   'hospital playlist',
   'prison playbook',
   'misaeng',
-  'healer',
+  // 'healer' 제거 — 일반 명사 false positive
   'kill me heal me',
   'secret garden',
-  'full house',
+  // 'full house' 제거 — 포커·미국 시트콤·일반 표현 다중 충돌
   'autumn in my heart',
   'winter sonata',
   'dr romantic',
@@ -110,11 +108,11 @@ export const KNOWN_DRAMAS_STATIC: string[] = [
   'start-up',
   'startup',
   'hospital playlist 2',
-  'pinocchio',
+  // 'pinocchio' 제거 — 디즈니 동명 영화·동화와 충돌
   'shopping king louis',
   'shopping king louie',
   'misaeng',
-  'mr robin hood',
+  // 'mr robin hood' 제거 — Robin Hood 너무 유명, 한국 작품 신호 약함
   'flower of evil',
   'tomorrow with you',
 
@@ -146,7 +144,7 @@ export const KNOWN_DRAMAS_STATIC: string[] = [
   'squid game 3',
   'parasyte the grey',
   'a killer paradox',
-  'hierarchy',
+  // 'hierarchy' 중복 + 일반어 → 제거
   'the impossible heir',
   "queen woo",
   'love next door',
@@ -154,7 +152,7 @@ export const KNOWN_DRAMAS_STATIC: string[] = [
   'jeongnyeon: the star is born',
   'jeongnyeon',
   'gangnam b-side',
-  'doubt',
+  // 'doubt' 제거 — 일반 명사/동사
   'the trauma code: heroes on call',
   'when the phone rings',
   'love scout',
@@ -167,25 +165,25 @@ export const KNOWN_DRAMAS_STATIC: string[] = [
   'minari',
   'past lives',
   'oldboy',
-  'old boy',
+  // 'old boy' 띄어쓰기 변형 제거 — "old boy from school" 같은 일반 표현 충돌
   'memories of murder',
   'the handmaiden',
   'train to busan',
   'snowpiercer',
-  'burning',
+  // 'burning' 제거 — "burning question/desire" 등 영어 일반어 충돌
   'the wailing',
-  'mother',  // 박찬욱 영화 — 단어 1개라 위험. 사전 매칭에선 빼는 게 안전. 주석으로 남김.
+  // 'mother' 제거 — 영어 일반 명사 false positive 4건 실측 확인
   'i saw the devil',
   'a tale of two sisters',
   'masquerade',
-  'thirst',
+  // 'thirst' 제거 — 영어 일반 명사/동사
   'lady vengeance',
   'sympathy for mr vengeance',
   'sympathy for mr. vengeance',
   'the chaser',
   'the man from nowhere',
   'a taxi driver',
-  'the host',
+  // 'the host' 제거 — "the host of party" 등 일반 표현
   'the age of shadows',
   'admiral roaring currents',
   'the admiral: roaring currents',
