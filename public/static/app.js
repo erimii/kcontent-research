@@ -219,7 +219,7 @@ function renderContentInsights(r) {
   const freqGrid = c ? `
     <div style="padding:14px 18px;display:grid;grid-template-columns:1fr 1fr;gap:18px;border-bottom:1px solid rgba(255,255,255,0.06)">
       <div>
-        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:6px">📺 작품 TOP</div>
+        <div style="font-size:13px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:6px">📺 작품 TOP</div>
         ${(c.topContents || []).slice(0,8).map(it => {
           const key = String(it.title).toLowerCase().trim().replace(/\s+/g, ' ')
           let ko = (window.K_DRAMA_TITLE_MAP || {})[key]
@@ -235,7 +235,7 @@ function renderContentInsights(r) {
         }).join('') || '<div style="font-size:11px;color:var(--text-muted)">없음</div>'}
       </div>
       <div>
-        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:6px">🌟 배우 TOP</div>
+        <div style="font-size:13px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:6px">🌟 배우 TOP</div>
         ${(c.topActors || []).length ? c.topActors.slice(0,8).map(a => {
           const ko = (window.K_ACTOR_NAME_MAP || {})[String(a.name).toLowerCase().trim().replace(/\s+/g, ' ')]
           return `
@@ -259,15 +259,15 @@ function renderContentInsights(r) {
         const sections = hasStructured
           ? `
             <div style="margin-bottom:10px">
-              <div style="font-size:11px;color:${m.color};font-weight:700;margin-bottom:4px;letter-spacing:0.2px">📌 핵심 인사이트</div>
+              <div style="font-size:14px;color:${m.color};font-weight:700;margin-bottom:4px;letter-spacing:0.2px">📌 핵심 인사이트</div>
               <div style="font-size:13.5px;line-height:1.6;color:var(--text-primary)">${escHtml(ins.observation)}</div>
             </div>
             <div style="margin-bottom:10px">
-              <div style="font-size:11px;color:var(--text-muted);font-weight:700;margin-bottom:4px;letter-spacing:0.2px">🔍 해석</div>
+              <div style="font-size:14px;color:var(--text-muted);font-weight:700;margin-bottom:4px;letter-spacing:0.2px">🔍 해석</div>
               <div style="font-size:13.5px;line-height:1.6;color:var(--text-secondary,#d4d6e0)">${escHtml(ins.interpretation)}</div>
             </div>
             <div style="background:rgba(255,255,255,0.04);border-left:2px solid ${m.color};border-radius:5px;padding:10px 12px">
-              <div style="font-size:11px;color:${m.color};font-weight:700;margin-bottom:4px;letter-spacing:0.2px">💡 액션 제안 (Claude의 의견)</div>
+              <div style="font-size:14px;color:${m.color};font-weight:700;margin-bottom:4px;letter-spacing:0.2px">💡 액션 제안 (Claude의 의견)</div>
               <div style="font-size:13.5px;line-height:1.65;color:var(--text-primary)">${escHtml(ins.action)}</div>
             </div>
           `
@@ -421,7 +421,7 @@ function renderGTrendsCard(s) {
   const activeEvents = Array.isArray(s.activeEvents) ? s.activeEvents : []
   const activeEventsLine = activeEvents.length > 0
     ? `<div style="margin-bottom:10px;padding:8px 10px;background:rgba(34,211,238,0.05);border-radius:5px;border-left:2px solid #22d3ee">
-         <div style="font-size:10px;color:#22d3ee;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:5px">오늘 활성 이벤트 (검색 트리거 후보)</div>
+         <div style="font-size:13px;color:#22d3ee;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:5px">오늘 활성 이벤트 (검색 트리거 후보)</div>
          <div style="display:flex;flex-wrap:wrap;gap:5px">
            ${activeEvents.map((ev) => {
              const phase = ev.status === 'leadup'
@@ -439,7 +439,7 @@ function renderGTrendsCard(s) {
   const eventsWithImpact = activeEvents.filter((ev) => ev.kContentImpact)
   const kImpactCard = eventsWithImpact.length > 0
     ? `<div style="margin-bottom:10px;padding:10px 12px;background:rgba(239,68,68,0.04);border-radius:5px;border-left:2px solid #ef4444">
-         <div style="font-size:10px;color:#ef4444;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:7px">K-콘텐츠 / 한국어 학습 활용 시사점</div>
+         <div style="font-size:13px;color:#ef4444;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:7px">K-콘텐츠 / 한국어 학습 활용 시사점</div>
          <div style="display:flex;flex-direction:column;gap:9px">
            ${eventsWithImpact.map((ev) => `
              <div style="font-size:11.5px;line-height:1.55">
@@ -467,7 +467,7 @@ function renderGTrendsCard(s) {
 
         <!-- ── ① K-콘텐츠 트렌드 (북미 내) — 사용자 목적 우선 노출 ─────── -->
         <div style="padding:16px 18px;border-bottom:1px solid rgba(255,255,255,0.05);background:rgba(239,68,68,0.03)">
-          <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">① K-콘텐츠 트렌드 (북미 내)</div>
+          <div style="font-size:14px;color:#ef4444;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">① K-콘텐츠 트렌드 (북미 내)</div>
           <div style="font-size:13px;line-height:1.6;color:var(--text-primary);margin-bottom:10px">${escHtml(s.kInsight)}</div>
           ${s.kItems.length > 0 ? `
             <div style="display:flex;flex-direction:column;gap:5px">
@@ -485,7 +485,7 @@ function renderGTrendsCard(s) {
 
         <!-- ── ② 비교 인사이트 ──────────────────── -->
         <div style="padding:16px 18px;border-bottom:1px solid rgba(255,255,255,0.05);background:rgba(34,211,238,0.04)">
-          <div style="font-size:11px;color:#22d3ee;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">② 트렌드 비교 인사이트</div>
+          <div style="font-size:14px;color:#22d3ee;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">② 트렌드 비교 인사이트</div>
           ${activeEventsLine}
           ${kImpactCard}
           <div style="font-size:13px;line-height:1.65;color:var(--text-primary)">${escHtml(s.comparison)}</div>
@@ -493,7 +493,7 @@ function renderGTrendsCard(s) {
 
         <!-- ── ③ 북미 거시 트렌드 (보조 컨텍스트, 기본 접힘) ─────── -->
         <div data-collapse-id="gt-macro" style="padding:14px 18px">
-          <div style="font-size:11px;color:#9ca3af;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">③ 북미 거시 트렌드 <span style="color:var(--text-muted);font-weight:400;text-transform:none">— 보조 컨텍스트</span></div>
+          <div style="font-size:14px;color:#9ca3af;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">③ 북미 거시 트렌드 <span style="color:var(--text-muted);font-weight:400;text-transform:none">— 보조 컨텍스트</span></div>
           <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">${escHtml(s.oneLineSummary)}</div>
           <div data-collapse-extra style="display:none">
             <!-- 카테고리 분포 막대 -->
@@ -650,7 +650,7 @@ function renderYoutubeCard(s) {
 
         <!-- 1. 인기 콘텐츠 TOP -->
         <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.05)">
-          <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:8px">① 인기 콘텐츠 TOP</div>
+          <div style="font-size:14px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:8px">① 인기 콘텐츠 TOP</div>
           ${collapsibleSection('yt-top', s.topVideos, 2, (v) => `
             <a href="https://www.youtube.com/watch?v=${escHtml(v.id)}" target="_blank" rel="noopener noreferrer"
                style="display:flex;gap:10px;padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:4px;border-left:2px solid ${YT_CHANNEL_COLOR[v.channelType] || '#6b7280'};margin-bottom:5px;text-decoration:none;color:inherit">
@@ -670,14 +670,14 @@ function renderYoutubeCard(s) {
         <!-- 2. 채널 타입 + 콘텐츠 유형 분포 -->
         <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.05)">
           ${(s.channelTypeStats || []).length > 0 ? `
-            <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:6px">② 채널 타입 분포</div>
+            <div style="font-size:14px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:6px">② 채널 타입 분포</div>
             <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">
               ${(s.channelTypeStats || []).map(c => `
                 <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:rgba(255,255,255,0.03);border-radius:14px;font-size:11px;border-left:3px solid ${YT_CHANNEL_COLOR[c.channelType] || '#6b7280'}">
                   ${escHtml(c.label)} <strong>${c.count}</strong> <span style="color:var(--text-muted);font-size:10px">(${fmtViews(c.totalViews)} views)</span>
                 </span>`).join('')}
             </div>` : ''}
-          <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:6px">③ 콘텐츠 유형 분포</div>
+          <div style="font-size:14px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:6px">③ 콘텐츠 유형 분포</div>
           <div style="display:flex;flex-wrap:wrap;gap:6px">
             ${(s.contentTypeStats || []).map(c => `
               <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:rgba(255,255,255,0.03);border-radius:14px;font-size:11px;border-left:3px solid ${YT_CONTENT_COLOR[c.type] || '#6b7280'}">
@@ -689,7 +689,7 @@ function renderYoutubeCard(s) {
         <!-- 3. 발화 phrase TOP -->
         ${(s.topPhrases || []).length > 0 ? `
         <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.05)">
-          <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:8px">④ 발화 내용 (제목·설명 반복)</div>
+          <div style="font-size:14px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:8px">④ 발화 내용 (제목·설명 반복)</div>
           <div style="display:flex;flex-wrap:wrap;gap:5px">
             ${s.topPhrases.slice(0, 15).map(p => `<span class="insight-chip" style="font-size:11px">${escHtml(p.phrase)} <strong>${p.count}</strong></span>`).join('')}
           </div>
@@ -698,7 +698,7 @@ function renderYoutubeCard(s) {
         <!-- 4. 댓글 반응 패턴 -->
         ${(s.reactionPatterns || []).length > 0 ? `
         <div style="padding:14px 18px">
-          <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:8px">⑤ 댓글 반응 패턴</div>
+          <div style="font-size:14px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:8px">⑤ 댓글 반응 패턴</div>
           <div style="display:flex;flex-direction:column;gap:6px">
             ${s.reactionPatterns.map(rp => `
               <div style="padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:4px;border-left:2px solid ${YT_REACTION_COLOR[rp.category] || '#6b7280'}">
@@ -815,7 +815,7 @@ function renderMdlCard(s) {
       <div class="card-body" style="padding:14px">
         <!-- 집계 -->
         <div style="padding:10px 14px;background:rgba(167,139,250,0.06);border-left:3px solid #a78bfa;border-radius:6px;margin-bottom:14px;font-size:12px;line-height:1.6">
-          <div style="font-size:10px;color:#c4b5fd;text-transform:uppercase;font-weight:700;margin-bottom:3px">📊 종합</div>
+          <div style="font-size:13px;color:#c4b5fd;text-transform:uppercase;font-weight:700;margin-bottom:3px">📊 종합</div>
           평균 MDL 평점 <strong>${s.aggregate.avgRating.toFixed(2)}/10</strong> · ${escHtml(s.aggregate.overallSentimentSummary)}
           ${s.aggregate.topPraisedTopic ? ` · 가장 많이 칭찬받는 주제 <strong style="color:#10b981">${escHtml(s.aggregate.topPraisedTopic)}</strong>` : ''}
           ${s.aggregate.topCriticizedTopic ? ` · 가장 많이 비판받는 주제 <strong style="color:#ef4444">${escHtml(s.aggregate.topCriticizedTopic)}</strong>` : ''}
@@ -869,7 +869,7 @@ function renderMdlDrama(a, idx) {
       <!-- 평점 분포 + 감정 -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px">
         <div style="padding:8px 10px;background:rgba(167,139,250,0.05);border-radius:4px;border-left:2px solid #a78bfa">
-          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:4px">⭐ 평점 분포 (${distTotal}개 리뷰)</div>
+          <div style="font-size:13px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:4px">⭐ 평점 분포 (${distTotal}개 리뷰)</div>
           <div style="display:flex;height:6px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,0.04)">
             ${distBar(br.distribution['9-10'], '#10b981')}
             ${distBar(br.distribution['7-9'], '#3b82f6')}
@@ -891,7 +891,7 @@ function renderMdlDrama(a, idx) {
             </div>` : ''}
         </div>
         <div style="padding:8px 10px;background:rgba(16,185,129,0.05);border-radius:4px;border-left:2px solid #10b981">
-          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:4px">💬 댓글 감정</div>
+          <div style="font-size:13px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:4px">💬 댓글 감정</div>
           <div style="font-size:11px;line-height:1.5">${escHtml(a.sentimentSummary)}</div>
           ${total > 1 ? `
             <div style="margin-top:5px;display:flex;height:5px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,0.04)">
@@ -904,14 +904,14 @@ function renderMdlDrama(a, idx) {
       <!-- 쟁점 클러스터 -->
       ${(a.reviewDebates && a.reviewDebates.length) ? `
         <div style="margin-top:10px">
-          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:5px">🗣️ 리뷰 쟁점 클러스터</div>
+          <div style="font-size:13px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:5px">🗣️ 리뷰 쟁점 클러스터</div>
           ${renderCommentDebatesInline(a.reviewDebates)}
         </div>` : ''}
 
       <!-- 대표 리뷰 -->
       ${(a.representativeReviews && a.representativeReviews.length) ? `
         <div style="margin-top:10px">
-          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:5px">📝 대표 리뷰</div>
+          <div style="font-size:13px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:5px">📝 대표 리뷰</div>
           ${a.representativeReviews.map(r => {
             const display = r.bodyKo || r.body
             const original = r.bodyKo && r.bodyKo !== r.body ? r.body : null
@@ -1043,7 +1043,7 @@ function renderCommentDebates(debates) {
   if (!debates || debates.length === 0) return ''
   return `
     <div style="margin-bottom:10px">
-      <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:6px">🗣️ 댓글 쟁점 클러스터 TOP ${debates.length}</div>
+      <div style="font-size:13px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:6px">🗣️ 댓글 쟁점 클러스터 TOP ${debates.length}</div>
       <div style="display:flex;flex-direction:column;gap:8px">
         ${debates.map((d, idx) => {
           const meta = DEBATE_DIR_META[d.opinionDirection] || DEBATE_DIR_META.discussion
@@ -1066,7 +1066,7 @@ function renderCommentDebates(debates) {
 
               ${(d.representatives && d.representatives.length) ? `
                 <div style="margin:6px 0">
-                  <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:3px">주요 의견</div>
+                  <div style="font-size:13px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:3px">주요 의견</div>
                   ${d.representatives.map(r => {
                     const display = r.bodyKo || r.body
                     const original = r.bodyKo && r.bodyKo !== r.body ? r.body : null
