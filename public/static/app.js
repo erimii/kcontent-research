@@ -381,6 +381,27 @@ const GT_CAT_COLOR = {
   finance: '#10b981', kcontent: '#ef4444', lifestyle: '#22d3ee', news: '#6b7280', other: '#9ca3af',
 }
 
+// 트렌드 항목 우측 — 이벤트 칩 (인라인, 작게)
+function renderEventChipInline(ev) {
+  if (!ev) return ''
+  return ` <span title="${escHtml(ev.reason)}" style="display:inline-block;font-size:9.5px;padding:1px 6px;background:rgba(34,211,238,0.18);border-radius:8px;color:#22d3ee;margin-left:4px;vertical-align:middle">${ev.emoji} ${escHtml(ev.labelKo)}</span>`
+}
+
+// 트렌드 항목 아래 — 이벤트 연결 자연어 설명 (작은 한 줄)
+function renderEventReason(ev) {
+  if (!ev) return ''
+  return `<div style="font-size:10px;color:#22d3ee;margin-top:3px;line-height:1.4;opacity:0.85">↳ ${escHtml(ev.reason)}</div>`
+}
+
+// K-콘텐츠 트렌드 카드용 — 칩 + 사유를 한 블록으로
+function renderEventChipBlock(ev) {
+  if (!ev) return ''
+  return `<div style="margin-top:4px;display:flex;align-items:flex-start;gap:5px;font-size:10px;line-height:1.45">
+    <span style="flex-shrink:0;padding:1px 6px;background:rgba(34,211,238,0.18);border-radius:8px;color:#22d3ee;white-space:nowrap">${ev.emoji} ${escHtml(ev.labelKo)}</span>
+    <span style="color:#22d3ee;opacity:0.85">${escHtml(ev.reason)}</span>
+  </div>`
+}
+
 function renderGTrendsCard(s) {
   if (!s) return ''
   const fetchedDate = new Date(s.fetchedAt)
@@ -395,6 +416,41 @@ function renderGTrendsCard(s) {
     const pct = ((c.count / totalForBar) * 100).toFixed(1)
     return `<div title="${escHtml(c.label)} ${c.count}개" style="flex:${c.count};background:${GT_CAT_COLOR[c.category] || '#9ca3af'};height:100%"></div>`
   }).join('')
+
+  // 오늘 활성 이벤트 라인 (구버전 캐시는 activeEvents 없을 수 있음 → 안전 처리)
+  const activeEvents = Array.isArray(s.activeEvents) ? s.activeEvents : []
+  const activeEventsLine = activeEvents.length > 0
+    ? `<div style="margin-bottom:10px;padding:8px 10px;background:rgba(34,211,238,0.05);border-radius:5px;border-left:2px solid #22d3ee">
+         <div style="font-size:10px;color:#22d3ee;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:5px">오늘 활성 이벤트 (검색 트리거 후보)</div>
+         <div style="display:flex;flex-wrap:wrap;gap:5px">
+           ${activeEvents.map((ev) => {
+             const phase = ev.status === 'leadup'
+               ? (ev.daysUntil === 0 ? '오늘 시작' : ev.daysUntil === 1 ? 'D-1' : `D-${ev.daysUntil}`)
+               : ev.status === 'active' ? '진행 중' : '직후'
+             return `<span title="${escHtml(ev.contextHint)}" style="font-size:10.5px;padding:3px 8px;background:rgba(34,211,238,0.12);border-radius:10px;color:var(--text-primary);white-space:nowrap">
+               ${ev.emoji} ${escHtml(ev.labelKo)} <span style="opacity:0.6;font-size:9.5px">· ${phase}</span>
+             </span>`
+           }).join('')}
+         </div>
+       </div>`
+    : ''
+
+  // K-콘텐츠/한국어 학습 활용 시사점 — kContentImpact가 있는 이벤트만
+  const eventsWithImpact = activeEvents.filter((ev) => ev.kContentImpact)
+  const kImpactCard = eventsWithImpact.length > 0
+    ? `<div style="margin-bottom:10px;padding:10px 12px;background:rgba(239,68,68,0.04);border-radius:5px;border-left:2px solid #ef4444">
+         <div style="font-size:10px;color:#ef4444;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:7px">K-콘텐츠 / 한국어 학습 활용 시사점</div>
+         <div style="display:flex;flex-direction:column;gap:9px">
+           ${eventsWithImpact.map((ev) => `
+             <div style="font-size:11.5px;line-height:1.55">
+               <div style="font-weight:600;color:var(--text-primary);margin-bottom:3px">${ev.emoji} ${escHtml(ev.labelKo)}</div>
+               <div style="color:var(--text-muted);margin-left:2px">📊 ${escHtml(ev.kContentImpact.observation)}</div>
+               <div style="color:#ef4444;margin-left:2px;margin-top:2px">💡 ${escHtml(ev.kContentImpact.application)}</div>
+             </div>
+           `).join('')}
+         </div>
+       </div>`
+    : ''
 
   return `
     <div class="card" style="border-left:3px solid #22d3ee">
@@ -420,6 +476,7 @@ function renderGTrendsCard(s) {
                   <div style="flex:1;min-width:0">
                     <div style="font-size:12px;font-weight:600">${escHtml(it.title)}</div>
                     ${it.kKeywords?.length ? `<div style="font-size:10px;color:var(--text-muted);margin-top:2px">매칭: ${it.kKeywords.slice(0,3).map(escHtml).join(', ')}</div>` : ''}
+                    ${renderEventChipBlock(it.eventContext)}
                   </div>
                   <span style="font-size:10px;color:#ef4444;white-space:nowrap">${escHtml(it.traffic)}</span>
                 </div>`).join('')}
@@ -429,6 +486,8 @@ function renderGTrendsCard(s) {
         <!-- ── ② 비교 인사이트 ──────────────────── -->
         <div style="padding:16px 18px;border-bottom:1px solid rgba(255,255,255,0.05);background:rgba(34,211,238,0.04)">
           <div style="font-size:11px;color:#22d3ee;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">② 트렌드 비교 인사이트</div>
+          ${activeEventsLine}
+          ${kImpactCard}
           <div style="font-size:13px;line-height:1.65;color:var(--text-primary)">${escHtml(s.comparison)}</div>
         </div>
 
@@ -452,7 +511,8 @@ function renderGTrendsCard(s) {
                 <div style="display:flex;align-items:center;gap:8px;padding:5px 9px;background:rgba(255,255,255,0.02);border-radius:4px;border-left:2px solid ${GT_CAT_COLOR[it.category] || '#9ca3af'};margin-bottom:4px">
                   <span style="font-size:10px;color:var(--text-muted);min-width:14px">${i+1}</span>
                   <div style="flex:1;min-width:0;font-size:11.5px;line-height:1.4">
-                    <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(it.title)}${it.isKContent ? ' <span style="color:#ef4444;font-size:10px">🇰🇷</span>' : ''}</div>
+                    <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(it.title)}${it.isKContent ? ' <span style="color:#ef4444;font-size:10px">🇰🇷</span>' : ''}${renderEventChipInline(it.eventContext)}</div>
+                    ${renderEventReason(it.eventContext)}
                   </div>
                   <span style="font-size:10px;color:${GT_CAT_COLOR[it.category] || '#9ca3af'};white-space:nowrap">${escHtml(it.traffic)}</span>
                 </div>`).join('')}

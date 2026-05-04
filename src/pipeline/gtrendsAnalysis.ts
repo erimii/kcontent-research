@@ -9,9 +9,12 @@ import type {
   GTrendsItem,
   GTrendsSummary,
   GTrendsCategoryStat,
+  GTrendsEventContext,
+  GTrendsActiveEvent,
   TrendCategory,
 } from '../types/index.js'
 import { fetchGTrendsRss } from '../crawlers/gtrends.js'
+import { getActiveEvents, eventPhaseLabel, type ActiveEvent } from '../data/usEvents.js'
 
 const CATEGORY_LABEL: Record<TrendCategory, string> = {
   sports: '🏈 스포츠',
@@ -195,6 +198,47 @@ function categorize(item: { title: string; newsItems: { title: string; source: s
   return 'other'
 }
 
+// ── 이벤트 매칭 ──────────────────────────────────────────────
+// 트렌드 제목·뉴스에서 활성 이벤트의 트리거 키워드를 직접 매칭하면
+// 그 트렌드의 검색 증가 원인을 이벤트로 귀속시킨다.
+// 카테고리만 일치하는 약한 매칭은 per-item 칩으로 노출하지 않고
+// 비교 인사이트 문장 안에서만 다룬다 (노이즈 회피).
+function matchEventToItem(item: GTrendsItem, activeEvents: ActiveEvent[]): GTrendsEventContext | undefined {
+  if (activeEvents.length === 0) return undefined
+  const haystack = [item.title, ...item.newsItems.map((n) => n.title)].join(' ')
+  for (const ev of activeEvents) {
+    for (const kw of ev.triggerKeywords) {
+      if (matchKeyword(haystack, kw)) {
+        const phase = eventPhaseLabel(ev)
+        // 이벤트와 트렌드를 직접 연결하는 자연어 — 단순 이벤트명 나열 X
+        const reason = `${phase} ${ev.labelKo}와 직접 연결되는 키워드 '${kw}'가 트렌드에 포함됨 — ${ev.contextHint}`
+        return {
+          eventId: ev.id,
+          emoji: ev.emoji,
+          labelKo: ev.labelKo,
+          matchedKeyword: kw,
+          reason,
+        }
+      }
+    }
+  }
+  return undefined
+}
+
+function toSummaryActiveEvents(events: ActiveEvent[]): GTrendsActiveEvent[] {
+  return events.map((e) => ({
+    id: e.id,
+    emoji: e.emoji,
+    labelKo: e.labelKo,
+    labelEn: e.labelEn,
+    contextHint: e.contextHint,
+    daysUntil: e.daysUntil,
+    status: e.status,
+    amplifiedCategories: e.amplifiedCategories,
+    kContentImpact: e.kContentImpact,
+  }))
+}
+
 // ── 자연어 인사이트 생성 ─────────────────────────────────────
 // TOP-N 항목들에서 카테고리별 카운트
 function topCategoryCounts(items: GTrendsItem[], topN: number): Map<TrendCategory, number> {
@@ -244,7 +288,12 @@ function buildKInsight(kItems: GTrendsItem[], total: number): string {
   return `'${topK.title}'(트래픽 ${topK.traffic})를 비롯해 K-콘텐츠 관련 키워드 ${kItems.length}개가 북미 트렌드 TOP에 진입 — 메인 화제는 아니지만 ${matched ? `'${matched}'` : '특정 콘텐츠'} 중심의 부각된 흐름을 보입니다.`
 }
 
-function buildComparison(kItems: GTrendsItem[], allItems: GTrendsItem[], stats: GTrendsCategoryStat[]): string {
+function buildComparison(
+  kItems: GTrendsItem[],
+  allItems: GTrendsItem[],
+  stats: GTrendsCategoryStat[],
+  activeEvents: ActiveEvent[],
+): string {
   const total = allItems.length
   if (total === 0) return '비교할 트렌드 데이터가 없습니다.'
 
@@ -256,43 +305,58 @@ function buildComparison(kItems: GTrendsItem[], allItems: GTrendsItem[], stats: 
   const dominantCat = meaningfulTop[0]
     ? { category: meaningfulTop[0][0], count: meaningfulTop[0][1], label: CATEGORY_LABEL[meaningfulTop[0][0]] }
     : null
-  void stats // 전체 stats 더 이상 dominant 산정에 사용 안 함
+  void stats
   const kStat = stats.find((s) => s.category === 'kcontent')
   const kCount = kStat?.count ?? 0
   const kRatio = (kCount / total) * 100
 
+  // dominant 카테고리를 증폭시키는 활성 이벤트 찾기 (있으면 자연어로 추가)
+  const dominantAmplifier = dominantCat
+    ? activeEvents.find((ev) => ev.amplifiedCategories.includes(dominantCat.category))
+    : undefined
+  const eventBoostFragment = dominantAmplifier
+    ? ` 이 흐름은 ${eventPhaseLabel(dominantAmplifier)} ${dominantAmplifier.labelKo} 시즌과 맞물린 결과로 해석됩니다 — ${dominantAmplifier.contextHint}.`
+    : ''
+
   // 1) K가 메인일 때 (>= 30%)
   if (kRatio >= 30) {
-    return `K-콘텐츠 관련 키워드가 북미 트렌드의 ${kRatio.toFixed(0)}%를 차지해 일시적 인기 단계를 넘어 글로벌 주류 검색 흐름의 한 축으로 자리잡았습니다. ${dominantCat ? `${CATEGORY_LABEL[dominantCat.category]} 영역과 함께 어깨를 나란히 하며,` : ''} 신규 작품·아티스트 발매 시점 또는 글로벌 이벤트와 맞물려 검색량이 집중된 결과로 해석됩니다.`
+    return `K-콘텐츠 관련 키워드가 북미 트렌드의 ${kRatio.toFixed(0)}%를 차지해 일시적 인기 단계를 넘어 글로벌 주류 검색 흐름의 한 축으로 자리잡았습니다. ${dominantCat ? `${CATEGORY_LABEL[dominantCat.category]} 영역과 함께 어깨를 나란히 하며,` : ''} 신규 작품·아티스트 발매 시점 또는 글로벌 이벤트와 맞물려 검색량이 집중된 결과로 해석됩니다.${eventBoostFragment}`
   }
 
   // 2) K가 부분 진입 (10~30%)
   if (kRatio >= 10) {
-    return `북미 메인 트렌드는 ${dominantCat ? CATEGORY_LABEL[dominantCat.category] : '여러 분야'} 중심으로 흘러가는 가운데, K-콘텐츠가 ${kRatio.toFixed(0)}% 비중으로 부분적 상승세를 보입니다. 특정 작품·아티스트의 컴백·신작 공개로 일시적 스파이크가 발생한 형태로 보이며, 메인스트림 점유까지는 추가 동력이 필요합니다.`
+    return `북미 메인 트렌드는 ${dominantCat ? CATEGORY_LABEL[dominantCat.category] : '여러 분야'} 중심으로 흘러가는 가운데, K-콘텐츠가 ${kRatio.toFixed(0)}% 비중으로 부분적 상승세를 보입니다. 특정 작품·아티스트의 컴백·신작 공개로 일시적 스파이크가 발생한 형태로 보이며, 메인스트림 점유까지는 추가 동력이 필요합니다.${eventBoostFragment}`
   }
 
   // 3) K가 거의 없음
   if (kRatio > 0) {
     const topK = kItems[0]
-    return `북미 트렌드는 ${dominantCat ? CATEGORY_LABEL[dominantCat.category] : '비K 영역'}이 ${dominantCat?.count}개로 압도적이며, K-콘텐츠는 '${topK.title}' 등 소수 키워드(${kCount}개)에 국한되어 있습니다. 글로벌 일반 시청자 단계에는 아직 도달하지 못했지만, K-팬덤 내부에서는 지속적 검색이 이루어지고 있는 것으로 추정됩니다.`
+    return `북미 트렌드는 ${dominantCat ? CATEGORY_LABEL[dominantCat.category] : '비K 영역'}이 ${dominantCat?.count}개로 압도적이며, K-콘텐츠는 '${topK.title}' 등 소수 키워드(${kCount}개)에 국한되어 있습니다. 글로벌 일반 시청자 단계에는 아직 도달하지 못했지만, K-팬덤 내부에서는 지속적 검색이 이루어지고 있는 것으로 추정됩니다.${eventBoostFragment}`
   }
 
   // 4) K 부재
-  return `오늘 북미 트렌드는 ${dominantCat ? CATEGORY_LABEL[dominantCat.category] : '주류 영역'} 중심으로 형성되었으며, K-콘텐츠 키워드는 일간 TOP에 진입하지 못했습니다. 이는 K 화제가 특정 이슈(컴백·신작·시상식 등)에 집중되는 패턴이라는 점을 감안하면, 오늘은 그러한 트리거가 없었던 시점으로 해석됩니다.`
+  return `오늘 북미 트렌드는 ${dominantCat ? CATEGORY_LABEL[dominantCat.category] : '주류 영역'} 중심으로 형성되었으며, K-콘텐츠 키워드는 일간 TOP에 진입하지 못했습니다. 이는 K 화제가 특정 이슈(컴백·신작·시상식 등)에 집중되는 패턴이라는 점을 감안하면, 오늘은 그러한 트리거가 없었던 시점으로 해석됩니다.${eventBoostFragment}`
 }
 
 // ── 메인 ───────────────────────────────────────────────────
 export async function buildGTrendsSummary(geo: string = 'US'): Promise<GTrendsSummary> {
   const raw = await fetchGTrendsRss(geo)
+  const now = new Date()
+
+  // 오늘 활성화된 미국 공휴일·시즌·이벤트
+  const activeEvents = getActiveEvents(now)
 
   const items: GTrendsItem[] = raw.map((r) => {
     const k = detectKContent(r)
-    return {
+    const baseItem: GTrendsItem = {
       ...r,
       isKContent: k.isK,
       kKeywords: k.matched.length > 0 ? k.matched : undefined,
       category: categorize(r, k.isK),
     }
+    // 트렌드와 직접 연결되는 이벤트 매칭 (트리거 키워드 직접 매칭만)
+    const eventContext = matchEventToItem(baseItem, activeEvents)
+    return eventContext ? { ...baseItem, eventContext } : baseItem
   })
 
   // 트래픽 내림차순 정렬
@@ -309,13 +373,12 @@ export async function buildGTrendsSummary(geo: string = 'US'): Promise<GTrendsSu
   const categoryStats = [...catMap.values()].sort((a, b) => b.count - a.count)
 
   const kItems = items.filter((i) => i.isKContent)
-  const topItems = items.slice(0, 100) // 상위 100개 (RSS 병합 후 가능한 만큼)
+  const topItems = items.slice(0, 100)
 
   const oneLineSummary = buildOneLineSummary(topItems, categoryStats)
   const kInsight = buildKInsight(kItems, items.length)
-  const comparison = buildComparison(kItems, items, categoryStats)
+  const comparison = buildComparison(kItems, items, categoryStats, activeEvents)
 
-  const now = new Date()
   return {
     fetchedAt: now.toISOString(),
     cached: false,
@@ -325,6 +388,7 @@ export async function buildGTrendsSummary(geo: string = 'US'): Promise<GTrendsSu
     topItems,
     kItems,
     categoryStats,
+    activeEvents: toSummaryActiveEvents(activeEvents),
     oneLineSummary,
     kInsight,
     comparison,

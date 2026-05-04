@@ -121,9 +121,9 @@ TOP5 포스트마다:
 
 ---
 
-## Google Trends 통합 (북미 거시 + K-콘텐츠 비교)
+## Google Trends 통합 (북미 거시 + K-콘텐츠 비교 + US 이벤트 컨텍스트)
 
-**별도 파이프라인** ([src/crawlers/gtrends.ts](src/crawlers/gtrends.ts) + [src/pipeline/gtrendsAnalysis.ts](src/pipeline/gtrendsAnalysis.ts))
+**별도 파이프라인** ([src/crawlers/gtrends.ts](src/crawlers/gtrends.ts) + [src/pipeline/gtrendsAnalysis.ts](src/pipeline/gtrendsAnalysis.ts) + [src/data/usEvents.ts](src/data/usEvents.ts))
 
 - **수집**: Playwright 헤드리스로 `https://trends.google.com/trending` 페이지 7개 병합:
   - US daily / US 7-day / US category 3·4·18·20 / CA daily
@@ -134,10 +134,19 @@ TOP5 포스트마다:
   - "X vs Y" 패턴 → 자동 sports
   - 워드 바운더리 정규식으로 substring 오매칭 차단
 - **K-콘텐츠 필터**: 60+ 키워드 (kdrama/kpop/BTS/Squid Game/배우 이름 등)
+- **🆕 미국 연간 이벤트 캘린더** ([src/data/usEvents.ts](src/data/usEvents.ts)) — 50개 이벤트 (공휴일·시상식·시즌·페스티벌)
+  - 동적 날짜 계산 (N번째 weekday / last weekday / 부활절 hardcode)
+  - lead-up 일수 + 2일 tail window로 검색 트리거 효과 시간 반영
+  - 트렌드별 트리거 키워드 직접 매칭 시 `eventContext` 필드 부여 → "↳ 직후의 켄터키 더비와 직접 연결되는 키워드 'kentucky derby'가 트렌드에 포함됨 — 경마의 정점 + 패션·모자·전통 행사" 같은 자연어 부착
+  - 카테고리 amplifier 매칭은 ② 비교 인사이트 본문에 흡수 ("이 흐름은 진행 중인 NBA 플레이오프 시즌과 맞물린 결과")
+- **🆕 K-콘텐츠 / 한국어 학습 활용 시사점** — 17개 강한 연결 이벤트에 `kContentImpact` (`observation` + `application`) 작성
+  - 예: 핼러윈 → "📊 호러·스릴러 검색 폭증 / 💡 K 스릴러·복수극·좀비물(스위트홈·지옥·킹덤) 노출 기회 + '무서워·소름' 한국어 표현 학습"
+  - 예: 추수감사절 → "📊 가족·전통 음식·여행 검색 폭증 / 💡 K-푸드 콘텐츠 + 추석 비교 학습 콘텐츠 결합"
+  - 약한 연결 이벤트(스포츠 시즌·정치 공휴일 등)는 빈 필드 → UI 자동 미노출
 - **3단계 인사이트** (사용자 명세 그대로):
-  - ① 북미 거시 트렌드 — TOP 검색어 + 카테고리 분포 + 한 줄 요약 (TOP 10 카테고리 분포 기준 dominant 산정)
-  - ② K-콘텐츠 트렌드 — 매칭된 K 항목 + 매칭 키워드 + 자연어 해석
-  - ③ 비교 인사이트 — K 비율에 따라 4단계 자연어 분기 (주류/부분 진입/소수/부재)
+  - ① K-콘텐츠 트렌드 (북미 내) — 매칭된 K 항목 + 매칭 키워드 + 자연어 해석 + 이벤트 컨텍스트 칩
+  - ② 비교 인사이트 — **오늘 활성 이벤트 칩 + K 활용 시사점 카드** + K 비율 4단계 자연어 분기 (주류/부분 진입/소수/부재)
+  - ③ 북미 거시 트렌드 (접힘 default) — TOP 검색어 + 카테고리 분포 + 항목별 이벤트 칩·자연어 reason
 - **캐시**: `mdl_cache` 테이블 (key `us_daily_v1`), TTL **1시간**
 
 ---
@@ -193,7 +202,7 @@ TOP5 포스트마다:
 4. **📺 MDL Top Airing K-드라마 TOP 5** — 포스터/평점/평점 분포/댓글 감정/리뷰 쟁점 클러스터/대표 리뷰. **⚠ 평가 분열** 배지 자동
 5. **🔥 Reddit 토론 TOP 5** — 댓글 합계 기준 가장 활발한 콘텐츠 클러스터
 6. **🔬 TOP5 딥 분석** — 인기 포스트별 인기 사유 / 감정 / 의견 유형 / 쟁점 클러스터
-7. **🌎 북미 트렌드 분석 (Google Trends · US)** — K-콘텐츠 우선 / 비교 인사이트 / 거시(접힘 default) 순. 보조 컨텍스트로 하단 배치
+7. **🌎 북미 트렌드 분석 (Google Trends · US)** — K-콘텐츠 우선 / 비교 인사이트(**오늘 활성 이벤트 칩 + K 활용 시사점 카드 포함**) / 거시(접힘 default, 항목별 이벤트 칩) 순. 보조 컨텍스트로 하단 배치
 
 **제거된 섹션** (사용자 목적 정합성 낮아 정리): 통계 stat grid · 감정/행동 트렌드 (3-칼럼) · 서브레딧별 특성 · 자동 인사이트(영문 legacy) · 감정별 주요 논의 주제 (키워드 기반 한계로 의미 약함)
 
@@ -264,6 +273,9 @@ src/
 │   ├── mdl.ts             ← Playwright 기반 MyDramaList 크롤러
 │   ├── gtrends.ts         ← Google Trends Playwright 7페이지 병합
 │   └── youtube.ts         ← youtubei.js 6개 해시태그 검색 + 댓글
+├── data/
+│   ├── usEvents.ts        ← 미국 연간 이벤트 캘린더 50개 + K-콘텐츠 시사점 17개
+│   └── known-dramas.ts    ← (gitignored) K-드라마 사전, 없으면 stub 동작
 ├── pipeline/
 │   ├── index.ts           ← 6단계 오케스트레이션
 │   ├── filter.ts          ← Stage 2 필터링

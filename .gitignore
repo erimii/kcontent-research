@@ -8,6 +8,8 @@ dist-crawler/
 *.bak
 *.tar.gz
 data/
+!src/data/
+src/data/known-dramas.ts
 logs/
 
 # macOS

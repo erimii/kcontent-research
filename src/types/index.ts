@@ -321,6 +321,14 @@ export type TrendCategory =
   | 'sports' | 'entertainment' | 'tech' | 'politics' | 'finance'
   | 'kcontent' | 'lifestyle' | 'news' | 'other'
 
+export interface GTrendsEventContext {
+  eventId: string                // "thanksgiving" 등 UsEvent.id
+  emoji: string                  // "🦃"
+  labelKo: string                // "추수감사절"
+  matchedKeyword: string         // 트렌드 제목·뉴스에서 매칭된 트리거 키워드
+  reason: string                 // 트렌드와 직접 연결된 자연어 설명
+}
+
 export interface GTrendsItem {
   title: string                  // 검색어
   traffic: string                // "2000+" 등
@@ -331,6 +339,7 @@ export interface GTrendsItem {
   category: TrendCategory
   isKContent: boolean
   kKeywords?: string[]           // 매칭된 K 키워드 (있으면)
+  eventContext?: GTrendsEventContext  // 미국 공휴일·시즌·이벤트 매칭 (직접 키워드 매칭 시만)
 }
 
 export interface GTrendsCategoryStat {
@@ -338,6 +347,23 @@ export interface GTrendsCategoryStat {
   label: string                  // 한글 라벨
   count: number
   totalTraffic: number
+}
+
+export interface GTrendsKContentImpact {
+  observation: string            // 📊 이벤트로 인한 검색 변화
+  application: string            // 💡 K-콘텐츠/한국어 학습 활용 시사점
+}
+
+export interface GTrendsActiveEvent {
+  id: string
+  emoji: string
+  labelKo: string
+  labelEn: string
+  contextHint: string
+  daysUntil: number              // 음수=지남, 0=오늘 시작, 양수=다가옴
+  status: 'leadup' | 'active' | 'tail'
+  amplifiedCategories: TrendCategory[]
+  kContentImpact?: GTrendsKContentImpact  // 강한 연결 이벤트만 채워짐
 }
 
 export interface GTrendsSummary {
@@ -349,6 +375,7 @@ export interface GTrendsSummary {
   topItems: GTrendsItem[]        // 전체 (카테고리 분류 포함)
   kItems: GTrendsItem[]          // K-콘텐츠만 필터
   categoryStats: GTrendsCategoryStat[]
+  activeEvents: GTrendsActiveEvent[]  // 현재 활성화된 미국 공휴일·시즌·이벤트 (오늘 기준)
   oneLineSummary: string         // "현재 북미에서 무엇이 화제인지" 한 줄
   kInsight: string               // K-콘텐츠 위치 분석 (자연어)
   comparison: string             // 비교 인사이트 (자연어)
