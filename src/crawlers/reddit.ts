@@ -88,6 +88,11 @@ async function fetchRSS(subreddit: string, sort: SortKey): Promise<RedditPost[]>
     const idMatch = link.match(/comments\/([a-z0-9]+)\//)
     const id = idMatch?.[1] || `rss_${sort}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
 
+    // 포스트 permalink 보장: link가 댓글 URL이 아니면 id로 재구성 (서브레딧 페이지로 빠지는 것 방지)
+    const postUrl = /\/comments\/[a-z0-9]+\//i.test(link)
+      ? link
+      : `https://www.reddit.com/r/${subreddit}/comments/${id}/`
+
     const flair = entry.match(/<category[^>]+label="([^"]+)"/)?.[1]
 
     // 본문 추출: <content type="html">...</content> 안의 HTML을 평문으로
@@ -110,7 +115,7 @@ async function fetchRSS(subreddit: string, sort: SortKey): Promise<RedditPost[]>
       subreddit,
       title,
       selftext,
-      url: link,
+      url: postUrl,
       imageUrl,
       score: recencyScore,    // RSS에 score 없음 → 최신성으로 대체 (댓글 수집 후 재산정)
       commentCount: 0,        // 댓글 RSS 수집 후 업데이트
