@@ -74,7 +74,13 @@ curl -X POST http://localhost:3366/api/youtube/refresh \
 Reddit Atom RSS 기반(인증 불필요), 4개 서브레딧:
 - `r/kdramas`, `r/kdrama`, `r/kdramarecommends`, `r/korean`
 
-각 서브레딧당 `hot.rss` + `new.rss` 두 정렬 모두 수집해 병합. 1주 이내 포스트만 유지하고, 상위 12개 포스트는 댓글 RSS(최대 50개) 추가 수집.
+각 서브레딧당 **4가지 정렬** RSS 병행 수집 (서브레딧당 최대 100개 raw → dedup):
+- `hot.rss` — 24h 안에서 업보트·댓글 속도가 빠른 글 (지금 달아오르는 화제)
+- `new.rss` — 단순 최신순 (갓 올라온 토론·신작 정보)
+- `top.rss?t=day` — 24h 누적 업보트 베스트 (검증된 인기)
+- `controversial.rss?t=day` — 호불호 갈리는 논쟁 (의견 분열)
+
+동적 cutoff: daily는 24h → 표본 부족 시 48h → 7d 단계 fallback. 최신성 기준 상위 12개 포스트는 댓글 RSS 추가 수집 후 `score = 댓글수 × 15 + 최신성 보너스` 자체 공식으로 재산정.
 
 ### Stage 2 — 필터링 ([src/pipeline/filter.ts](src/pipeline/filter.ts))
 
@@ -86,7 +92,12 @@ Reddit Atom RSS 기반(인증 불필요), 4개 서브레딧:
 
 ### Stage 3 — 트렌드 분석 ([src/pipeline/trends.ts](src/pipeline/trends.ts))
 
-- **콘텐츠 트렌드**: 따옴표 제목 카운트(K-콘텐츠) + 알려진 배우 매칭 + stopword 제외 키워드 빈도
+- **콘텐츠 트렌드**: **사전 매칭 우선** 방식 — 정규식 노이즈(영어 축약형 `'s`/`'m` 오탐, 인용 댓글 잘못 추출) 제거
+  - 작품: 정적 사전 ([src/data/known-dramas-static.ts](src/data/known-dramas-static.ts), 한국 드라마·영화 ~150개) + MDL Top Airing/Popular 자동 동기화 사전 합집합 → word-boundary 매칭
+  - 따옴표 추출은 **한국어 따옴표(「」, 『』)만** — 영어 큰따옴표·싱글 쿼트 폐기 (인용 댓글·축약형 오탐 차단)
+  - sanity check: 마침표 끝 인용 / 소문자 시작 / 일반 영문 문장 시작(He, It, This 등) 거름
+  - 배우: 정적 사전 (~80명) + **word-boundary alternation regex** (substring 오탐 차단 — 예: `iu`가 `studious`에 부분 매칭되던 버그 수정)
+  - 1포스트 1카운트 (같은 글에서 같은 작품·배우 100번 언급해도 1)
 - **감정 트렌드**: 긍정/부정/중립 분포 + **감정별 주요 논의 주제 TOP 3** (워드 바운더리 정규식, 대표 인용 자동 추출)
 - **행동 트렌드**: 추천(recommendation) / 리뷰(review) / 질문(question) / 의견(discussion) 분류
 - **서브레딧별 특성**: r/kdramas → 감정/리뷰 중심, r/korean → 문화/확장 등
@@ -175,6 +186,7 @@ TOP5 포스트마다:
 **별도 파이프라인** ([src/crawlers/mdl.ts](src/crawlers/mdl.ts) + [src/pipeline/mdlAnalysis.ts](src/pipeline/mdlAnalysis.ts))
 
 - **수집**: Playwright 헤드리스로 `https://mydramalist.com/shows/top_airing` → Korean Drama 필터링 → TOP 5 추출 → 각 드라마의 `/reviews`에서 상위 리뷰 10개씩
+- **🆕 Popular 사전 자동 동기화** ([src/crawlers/mdl.ts](src/crawlers/mdl.ts) `crawlMdlPopularTitles`): `/shows/popular` + `/shows/top_korea` 두 페이지 → 한국 드라마 제목 ~70~100개 → `mdl_popular_titles_v1` 캐시 (TTL 24h) → Stage 3 사전 매칭에 자동 합쳐짐
 - **분석**: 리뷰를 RedditComment 형태로 변환 → 기존 `deepAnalysis` 재활용해 동일한 쟁점 클러스터링·자연어 요약 적용
 - **추가 산출물**:
   - 평점 분포 (9-10 / 7-9 / 5-7 / <5 4구간)
@@ -244,6 +256,8 @@ TOP5 포스트마다:
 | POST | `/api/crawl` | 실제 Reddit 크롤링 + 파이프라인 |
 | GET | `/api/mdl` | MDL 캐시 조회 (없으면 `summary: null`) |
 | POST | `/api/mdl/refresh` | MDL Playwright 크롤링 + 분석 + 캐시 저장 (`{force:true}` 시 캐시 무시) |
+| GET | `/api/mdl/popular` | MDL Popular/TopKorea 제목 사전 캐시 조회 (사전 매칭 자동 갱신용) |
+| POST | `/api/mdl/popular/refresh` | Popular + TopKorea 페이지 크롤 → 제목 합집합 ~100개 (TTL 24h) |
 | GET | `/api/gtrends` | Google Trends 캐시 조회 |
 | POST | `/api/gtrends/refresh` | GTrends RSS 수집 + 카테고리 분류 + K-콘텐츠 비교 인사이트 (`{force:true}` 시 캐시 무시) |
 | GET | `/api/youtube` | YouTube 캐시 조회 |
@@ -274,8 +288,9 @@ src/
 │   ├── gtrends.ts         ← Google Trends Playwright 7페이지 병합
 │   └── youtube.ts         ← youtubei.js 6개 해시태그 검색 + 댓글
 ├── data/
-│   ├── usEvents.ts        ← 미국 연간 이벤트 캘린더 50개 + K-콘텐츠 시사점 17개
-│   └── known-dramas.ts    ← (gitignored) K-드라마 사전, 없으면 stub 동작
+│   ├── usEvents.ts             ← 미국 연간 이벤트 캘린더 50개 + K-콘텐츠 시사점 17개
+│   ├── known-dramas-static.ts  ← 한국 드라마·영화 ~150개 + 한국 배우/연기자 ~80명 (정적 사전, commit됨)
+│   └── known-dramas.ts         ← 정적 + 동적(MDL airing/popular) 사전 합집합 패턴 빌더
 ├── pipeline/
 │   ├── index.ts           ← 6단계 오케스트레이션
 │   ├── filter.ts          ← Stage 2 필터링
@@ -308,6 +323,7 @@ data/k-content.db
 ├── content_snapshots - 콘텐츠별 점수·메타데이터 스냅샷
 ├── crawl_logs        - 크롤링 실행 이력 (Reddit + MDL)
 └── mdl_cache         - MDL Top Airing (key='top_airing_v1', TTL 6h)
+                      + MDL Popular/TopKorea 제목 사전 (key='mdl_popular_titles_v1', TTL 24h)
                       + GTrends 북미 (key='us_daily_v1', TTL 1h)
                       + YouTube SNS 버즈 (key='youtube_buzz_v1', TTL 3h)
 ```

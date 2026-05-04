@@ -146,10 +146,13 @@ app.post('/api/crawl', async (req, res) => {
     }
 
     log('[Pipeline] 데이터 처리 중...')
-    // MDL airing 캐시에서 현재 방영작 제목을 추출해 콘텐츠 매칭에 사용
+    // MDL airing + popular 캐시에서 작품 제목 합집합 → 콘텐츠 매칭에 사용
     const mdlCacheForPipeline = getMdlCache<MdlSummary>(MDL_CACHE_KEY)
-    const extraKnownDramaTitles = mdlCacheForPipeline?.data?.dramas?.map((d: any) => d.drama?.title).filter(Boolean) || []
-    if (extraKnownDramaTitles.length > 0) log(`[Pipeline] MDL 방영작 ${extraKnownDramaTitles.length}개 매칭에 추가`)
+    const airingTitles = mdlCacheForPipeline?.data?.dramas?.map((d: any) => d.drama?.title).filter(Boolean) || []
+    const popularCache = getMdlCache<{ titles: string[] }>(MDL_POPULAR_CACHE_KEY)
+    const popularTitles = popularCache?.data?.titles || []
+    const extraKnownDramaTitles = [...new Set([...airingTitles, ...popularTitles])]
+    if (extraKnownDramaTitles.length > 0) log(`[Pipeline] MDL 동적 사전 추가: airing ${airingTitles.length} + popular ${popularTitles.length} → unique ${extraKnownDramaTitles.length}개`)
     const report = runPipeline({ redditPosts, reportType, extraKnownDramaTitles })
     if (redditMeta) {
       ;(report as any).redditCrawlMeta = {
@@ -624,7 +627,10 @@ app.post('/api/schedule/trigger', async (req, res) => {
     }
 
     const mdlCacheForSch = getMdlCache<MdlSummary>(MDL_CACHE_KEY)
-    const extraKnownTitlesForSch = mdlCacheForSch?.data?.dramas?.map((d: any) => d.drama?.title).filter(Boolean) || []
+    const airingTitlesForSch = mdlCacheForSch?.data?.dramas?.map((d: any) => d.drama?.title).filter(Boolean) || []
+    const popularCacheForSch = getMdlCache<{ titles: string[] }>(MDL_POPULAR_CACHE_KEY)
+    const popularTitlesForSch = popularCacheForSch?.data?.titles || []
+    const extraKnownTitlesForSch = [...new Set([...airingTitlesForSch, ...popularTitlesForSch])]
     const report = runPipeline({ redditPosts, reportType, extraKnownDramaTitles: extraKnownTitlesForSch })
     if (redditMeta) {
       ;(report as any).redditCrawlMeta = {
@@ -694,6 +700,9 @@ app.get('/api/stats', (_req, res) => {
 // ============================================================
 const MDL_CACHE_KEY = 'top_airing_v1'
 const MDL_CACHE_TTL_SEC = 6 * 3600
+// MDL Popular/TopKorea 제목 사전 (사전 매칭 자동 갱신용) — TTL 24h, 자주 안 바뀜
+const MDL_POPULAR_CACHE_KEY = 'mdl_popular_titles_v1'
+const MDL_POPULAR_CACHE_TTL_SEC = 24 * 3600
 
 app.get('/api/mdl', (_req, res) => {
   try {
@@ -751,6 +760,71 @@ app.post('/api/mdl/refresh', async (req, res) => {
   } catch (e) {
     console.error('[MDL] 오류:', e)
     saveCrawlLog('mdl', 0, 'failed', String(e))
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+// ============================================================
+// MDL Popular/TopKorea 제목 사전 (사전 매칭 자동 갱신용)
+// - GET: 캐시 조회
+// - POST: 강제 새로고침 (Playwright로 popular + top_korea 페이지 크롤 → 제목만 추출)
+// ============================================================
+app.get('/api/mdl/popular', (_req, res) => {
+  try {
+    const cached = getMdlCache<{ titles: string[] }>(MDL_POPULAR_CACHE_KEY)
+    if (!cached) return res.json({ ok: true, titles: [], cached: false })
+    res.json({
+      ok: true,
+      titles: cached.data.titles,
+      count: cached.data.titles.length,
+      cached: true,
+      fetchedAt: cached.fetchedAt,
+      expiresAt: cached.expiresAt,
+    })
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+app.post('/api/mdl/popular/refresh', async (req, res) => {
+  try {
+    const force = req.body?.force === true
+    if (!force) {
+      const cached = getMdlCache<{ titles: string[] }>(MDL_POPULAR_CACHE_KEY)
+      if (cached) {
+        return res.json({
+          ok: true,
+          titles: cached.data.titles,
+          count: cached.data.titles.length,
+          cached: true,
+          fetchedAt: cached.fetchedAt,
+          expiresAt: cached.expiresAt,
+        })
+      }
+    }
+
+    console.log('[MDL-popular] 새 크롤링 시작...')
+    const t0 = Date.now()
+    const { crawlMdlPopularTitles } = await import('./crawlers/mdl.js')
+    const titles = await crawlMdlPopularTitles(50)
+    saveCrawlLog('mdl-popular', titles.length, titles.length > 0 ? 'success' : 'failed')
+    if (titles.length === 0) {
+      return res.status(503).json({ ok: false, error: 'MDL Popular 크롤링 실패 (0개 제목)' })
+    }
+    const ttl = setMdlCache(MDL_POPULAR_CACHE_KEY, { titles }, MDL_POPULAR_CACHE_TTL_SEC)
+    console.log(`[MDL-popular] 완료 (${((Date.now() - t0) / 1000).toFixed(1)}s) - ${titles.length}개 제목`)
+
+    res.json({
+      ok: true,
+      titles,
+      count: titles.length,
+      cached: false,
+      fetchedAt: ttl.fetchedAt,
+      expiresAt: ttl.expiresAt,
+    })
+  } catch (e) {
+    console.error('[MDL-popular] 오류:', e)
+    saveCrawlLog('mdl-popular', 0, 'failed', String(e))
     res.status(500).json({ ok: false, error: String(e) })
   }
 })

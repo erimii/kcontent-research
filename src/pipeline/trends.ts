@@ -16,6 +16,7 @@ import type {
   SubredditInsight,
 } from '../types/index.js'
 import { buildKnownDramaPattern } from '../data/known-dramas.js'
+import { KNOWN_ACTORS_STATIC } from '../data/known-dramas-static.js'
 
 const POS_KW = ['love', 'amazing', 'great', 'excellent', 'best', 'favorite', 'worth', 'masterpiece', 'beautiful', 'perfect', 'incredible', 'fantastic', 'awesome', 'brilliant', 'enjoy', 'recommend']
 const NEG_KW = ['hate', 'bad', 'boring', 'disappointing', 'worst', 'skip', 'drop', 'awful', 'terrible', 'cringe', 'overrated', 'flop', 'mid', 'frustrating', 'predictable']
@@ -24,7 +25,26 @@ const REC_KW = ['recommend', 'suggestion', 'similar to', 'looking for', 'what sh
 const QUEST_KW = ['how do i', 'how to', 'anyone know', 'does anyone', 'is there', 'can someone', 'help me', 'why does', 'why is']
 const REVIEW_KW = ['review', 'finished', 'just watched', 'rewatch', 'thoughts on', 'my opinion', 'rating']
 
-const TITLE_PAT = /["'「」『』]([^"'「」『』]{2,40})["'「」『』]/g
+// 작품명 추출용 — 한국어 따옴표만 (「」, 『』).
+// 영어 큰따옴표(") · 싱글 쿼트(')는 인용 댓글·축약형(it's, I'm 등) 오탐이 너무 많아 제외.
+// 사전 매칭(buildKnownDramaPattern + extraKnownDramaTitles)이 메인 신호 경로.
+const TITLE_PAT = /[「『]([^「」『』]{2,40})[」』]/g
+
+// 따옴표로 추출된 후보가 진짜 작품명일 가능성 검증.
+// false면 카운트에서 제외 (인용 댓글·문장 조각 거르기).
+function isPlausibleTitle(s: string): boolean {
+  const t = s.trim()
+  if (t.length < 2) return false
+  // 마침표·물음표·느낌표·쉼표로 끝나면 인용 문장 — 거름
+  if (/[.!?,…]$/.test(t)) return false
+  // 첫 글자가 대문자(영어) · 한글/한자(\p{Lo}) · 숫자(\p{N}) 중 하나여야 함
+  // (소문자 영문은 영어 축약형 잔재 — 's apart, m still 등 — 거름)
+  const first = t[0]
+  if (!/[\p{Lu}\p{Lo}\p{N}]/u.test(first)) return false
+  // 흔한 영어 문장 시작 (대문자라도 거름) — He/She/It/We/They 등
+  if (/^(He|She|It|We|They|You|That|This|There|Here|What|When|Where|Why|How|My|Your|His|Her|Our|Their|And|But|Or|So)\s/.test(t)) return false
+  return true
+}
 
 const STOPWORDS = new Set([
   'the', 'a', 'an', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 'be', 'been',
@@ -42,15 +62,23 @@ const STOPWORDS = new Set([
   'kdrama', 'kdramas', 'drama', 'dramas', 'show', 'shows', 'episode', 'season',
 ])
 
-const KNOWN_ACTORS = new Set([
-  'iu', 'gong yoo', 'song hye-kyo', 'lee min-ho', 'park seo-joon', 'son ye-jin',
-  'hyun bin', 'ji chang-wook', 'park bo-young', 'kim soo-hyun', 'kim go-eun',
-  'jun ji-hyun', 'gong hyo-jin', 'jo in-sung', 'lee jong-suk', 'suzy', 'bae suzy',
-  'park min-young', 'seo ye-ji', 'byeon woo-seok', 'kim sae-ron', 'lee byung-hun',
-  'jun ho', 'ahn hyo-seop', 'nam joo-hyuk', 'han so-hee', 'kim tae-ri',
-  'park hyung-sik', 'lee dong-wook', 'song joong-ki', 'lee ji-eun', 'rain',
-  'kim jung-hyun', 'lee sung-kyung', 'shin min-ah', 'park shin-hye', 'choi woo-shik',
+// 배우 사전: 정적 사전(known-dramas-static.ts)이 메인 — 80+명. 인라인 set은 fallback.
+// substring 매칭은 word-boundary 오탐 위험 (예: 'iu' → 'studious' 매칭) → 통합 alternation regex로 word-boundary 적용.
+const KNOWN_ACTORS = new Set<string>([
+  ...KNOWN_ACTORS_STATIC,
 ])
+
+function escRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// word-boundary alternation regex (1회 빌드, 모듈 lifetime 캐시).
+// 긴 이름 우선 매칭 (예: "lee min-ho"가 "lee" 단독보다 먼저).
+const ACTORS_PAT: RegExp | null = (() => {
+  const list = [...KNOWN_ACTORS].filter((a) => a.length >= 2).sort((a, b) => b.length - a.length)
+  if (list.length === 0) return null
+  return new RegExp(`\\b(${list.map(escRegex).join('|')})\\b`, 'gi')
+})()
 
 function getFullText(p: RedditPost): string {
   return [p.title, p.selftext || '', ...p.comments.map((c) => c.body)].join(' ')
@@ -101,10 +129,10 @@ export function analyzeContentTrend(posts: RedditPost[], extraKnownTitles: strin
     const text = `${p.title} ${p.selftext || ''} ${p.comments.map((c) => c.body).join(' ')}`
     const seenInPost = new Set<string>()  // 포스트 단위 dedup (양쪽 매칭이 같은 작품 잡으면 1회만)
 
-    // ① 따옴표 안 제목 (기존 로직)
+    // ① 따옴표 안 제목 (한국어 따옴표만, sanity check 적용)
     for (const m of text.matchAll(TITLE_PAT)) {
       const t = m[1].trim()
-      if (t.length < 2) continue
+      if (!isPlausibleTitle(t)) continue
       const key = t.toLowerCase()
       if (seenInPost.has(key)) continue
       seenInPost.add(key)
@@ -126,11 +154,16 @@ export function analyzeContentTrend(posts: RedditPost[], extraKnownTitles: strin
       }
     }
 
-    // 배우 (알려진 배우 매칭)
+    // 배우 — word-boundary alternation regex 매칭 (substring 오탐 차단).
+    // 1포스트 1배우 1카운트 (seenActorInPost로 dedup).
     const lower = text.toLowerCase()
-    for (const a of KNOWN_ACTORS) {
-      if (lower.includes(a)) {
-        const display = a.replace(/\b\w/g, (c) => c.toUpperCase())
+    if (ACTORS_PAT) {
+      const seenActorInPost = new Set<string>()
+      for (const m of lower.matchAll(ACTORS_PAT)) {
+        const matched = m[1].toLowerCase()
+        if (seenActorInPost.has(matched)) continue
+        seenActorInPost.add(matched)
+        const display = matched.replace(/\b\w/g, (c) => c.toUpperCase())
         actors.set(display, (actors.get(display) ?? 0) + 1)
       }
     }

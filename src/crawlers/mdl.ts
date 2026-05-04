@@ -207,6 +207,90 @@ async function fetchDramaReviews(page: Page, dramaUrl: string, max: number): Pro
 }
 
 // ── 메인: top airing K-드라마 N개 + 각각 리뷰 수집 ──────────
+// ── 제목만 가벼이 추출 (popular / top 페이지) ──────────────────
+// 사전 매칭(buildKnownDramaPattern)용. 리뷰·평점 등 부가 데이터 미수집 → 빠름.
+// URL 후보:
+//   /shows/popular        — 현재 인기작 (한국 드라마만 필터링)
+//   /shows/top            — 전체 평점 TOP
+//   /shows/top_korea      — 한국 한정 평점 TOP
+async function fetchKoreanDramaTitlesFromList(page: Page, listUrl: string, topN: number): Promise<string[]> {
+  await page.goto(listUrl, { waitUntil: 'domcontentloaded', timeout: 60000 })
+  await waitForCloudflareIfNeeded(page)
+  await page.waitForSelector('.box', { timeout: 30000 })
+
+  return page.evaluate(({ topN }) => {
+    const cards = Array.from(document.querySelectorAll('.box'))
+    const out: string[] = []
+    const dramaHrefRe = /^\/\d+-/
+
+    for (let i = 0; i < cards.length; i++) {
+      const c = cards[i]
+      const text = c.textContent ? c.textContent.replace(/\s+/g, ' ') : ''
+      // Korean Drama / Korean Movie / Korean Special 모두 포함
+      if (!/Korean (Drama|Movie|Special|Series|TV)/i.test(text)) continue
+
+      const allLinks = c.querySelectorAll('a[href]')
+      let linkEl: Element | null = null
+      for (let j = 0; j < allLinks.length; j++) {
+        const h = allLinks[j].getAttribute('href') || ''
+        if (dramaHrefRe.test(h)) { linkEl = allLinks[j]; break }
+      }
+      if (!linkEl) continue
+
+      const titleText = linkEl.textContent ? linkEl.textContent.trim() : ''
+      const titleAttr = linkEl.getAttribute('title') || ''
+      const posterImg = c.querySelector('img')
+      const altText = posterImg ? (posterImg.getAttribute('alt') || '') : ''
+      const title = titleText || titleAttr || altText
+      if (title && title.length >= 2 && title.length <= 80) {
+        out.push(title)
+      }
+      if (out.length >= topN) break
+    }
+    return out
+  }, { topN })
+}
+
+// 한국 인기·TOP 작품 제목 일괄 수집 (사전 자동 갱신용).
+// popular + top_korea 두 페이지 합집합 → dedup. 각 페이지 ~50개 → 합쳐서 ~70~100개.
+export async function crawlMdlPopularTitles(topN: number = 50): Promise<string[]> {
+  const browser: Browser = await chromium.launch({ headless: true })
+  try {
+    const context = await browser.newContext({
+      userAgent: UA,
+      viewport: { width: 1280, height: 720 },
+      locale: 'en-US',
+    })
+    const page = await context.newPage()
+
+    const URLS = [
+      `${BASE_URL}/shows/popular`,
+      `${BASE_URL}/shows/top_korea`,
+    ]
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const url of URLS) {
+      try {
+        const titles = await fetchKoreanDramaTitlesFromList(page, url, topN)
+        for (const t of titles) {
+          const key = t.trim().toLowerCase()
+          if (!key || seen.has(key)) continue
+          seen.add(key)
+          out.push(t.trim())
+        }
+        console.log(`  [MDL-popular] ${url.split('/').pop()}: +${titles.length}개`)
+        await page.waitForTimeout(600)
+      } catch (e) {
+        console.warn(`  [MDL-popular] ${url} 실패:`, (e as Error).message)
+      }
+    }
+    console.log(`  [MDL-popular] 총 unique ${out.length}개 제목 수집`)
+    return out
+  } finally {
+    await browser.close()
+  }
+}
+
 export async function crawlMdlTopAiring(
   options: { topN?: number; reviewsPerDrama?: number } = {}
 ): Promise<MdlDrama[]> {

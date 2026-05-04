@@ -9,7 +9,6 @@ dist-crawler/
 *.tar.gz
 data/
 !src/data/
-src/data/known-dramas.ts
 logs/
 
 # macOS
