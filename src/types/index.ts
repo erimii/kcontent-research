@@ -424,6 +424,7 @@ export interface YoutubeVideo {
   duration?: string
   publishedText?: string
   description?: string
+  commentCount?: number          // YouTube 측 총 댓글 수 (engagement score 계산용)
   hashtag: string                // 해당 영상이 잡힌 해시태그
   contentType: YoutubeContentType
   channelType: YoutubeChannelType  // official / influencer / community

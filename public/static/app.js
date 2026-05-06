@@ -662,80 +662,6 @@ function renderYoutubeCard(s) {
     ? `<span style="font-size:10px;color:var(--text-muted)">캐시 · ${ago}분 전</span>`
     : `<span style="font-size:10px;color:#10b981">방금 가져옴</span>`
 
-  // ── 데이터 도출 (행동 중심) ──────────────────────────────
-  const totalViews = (s.topVideos || []).reduce((acc, v) => acc + (v.views || 0), 0) || 1
-  const top = (s.topVideos || [])[0]
-  const topShare = top ? Math.round((top.views / totalViews) * 100) : 0
-  const officialStat = (s.channelTypeStats || []).find(c => c.channelType === 'official')
-  const officialPct = officialStat ? Math.round((officialStat.count / s.totalVideos) * 100) : 0
-  const realContentTypes = (s.contentTypeStats || []).filter(c => c.type !== 'other')
-  const topContent = realContentTypes[0]
-  const topContentViewShare = topContent ? Math.round((topContent.totalViews / ((s.contentTypeStats || []).reduce((a, c) => a + c.totalViews, 0) || 1)) * 100) : 0
-  const reactions = (s.reactionPatterns || [])
-  const emotionTotal = reactions.filter(r => r.category === 'emotion').reduce((a, r) => a + r.count, 0)
-  const totalReactions = reactions.reduce((a, r) => a + r.count, 0) || 1
-  const emotionPct = Math.round((emotionTotal / totalReactions) * 100)
-
-  // ── Top 3 현상 (1줄씩) ──────────────────────────────────
-  const top3 = []
-  if (top) {
-    top3.push({
-      icon: '🎬',
-      text: `<strong>"${escHtml(top.title)}"</strong>이 ${fmtViews(top.views)} 조회수로 <strong>전체의 ${topShare}%</strong> 단독 견인`,
-      color: '#ef4444',
-    })
-  }
-  if (officialStat && officialPct >= 50) {
-    top3.push({
-      icon: '📺',
-      text: `<strong>공식 채널이 ${officialStat.count}개/${s.totalVideos}개 (${officialPct}%)</strong> — 마케팅 주도형 확산 흐름`,
-      color: '#10b981',
-    })
-  }
-  if (topContent && topContent.count >= 2) {
-    top3.push({
-      icon: '🎭',
-      text: `<strong>${escHtml(topContent.label)} ${topContent.count}건</strong>이 조회수의 <strong>${topContentViewShare}%</strong> 차지 — 팬덤 핵심 컨텍스트`,
-      color: '#a78bfa',
-    })
-  }
-  if (top3.length < 3 && reactions[0]) {
-    top3.push({
-      icon: '💬',
-      text: `댓글에서 <strong>"${escHtml(reactions[0].label)}"</strong> ${reactions[0].count}건이 가장 두드러짐`,
-      color: YT_REACTION_COLOR[reactions[0].category] || '#6b7280',
-    })
-  }
-
-  // ── 핵심 인사이트 (1줄 합성) ────────────────────────────
-  const coreInsight = (() => {
-    const parts = []
-    if (officialPct >= 70) parts.push('공식 마케팅 주도')
-    else if (officialPct >= 40) parts.push('공식·인플루언서 병행')
-    if (topContent?.type === 'scene') parts.push('명장면 클립 중심')
-    else if (topContent?.type === 'actor') parts.push('배우 중심')
-    else if (topContent?.type === 'edit') parts.push('팬편집 중심')
-    if (emotionPct >= 50) parts.push('감정 몰입 단계')
-    else if (emotionPct >= 30) parts.push('감정·정보 혼재')
-    return parts.length ? parts.join(' · ') + ' SNS 버즈 사이클' : 'SNS 버즈 형성 중'
-  })()
-
-  // ── 액션 제안 (3개, 기능 수준) ──────────────────────────
-  const actions = []
-  if (top) {
-    actions.push(`최상위 영상 "${(top.title || '').slice(0, 28)}…" 명장면 클립 → 핵심 대사 학습 카드 자동 매칭, 앱 첫 화면 24h 노출`)
-  }
-  if (officialPct >= 60) {
-    actions.push(`공식 채널(${officialStat?.label || ''}) 신작 트레일러 알림 위젯 신설 — 새 영상 게시 시 즉시 푸시 + 해당 작품 어휘 코스 자동 매핑`)
-  }
-  if (emotionPct >= 40 || (reactions[0] && /감정|이모지|중독|폭발/.test(reactions[0].label))) {
-    actions.push(`감정 표현 학습 모듈 출시 — "OMG / 명대사 / reaction" 자주 쓰이는 감탄·감정 표현 30선을 SRS 카드로`)
-  }
-  if (actions.length < 3 && topContent?.type === 'scene') {
-    actions.push(`명장면 클립 학습 코스 양산 — 30~60초 클립 + 핵심 대사 5개 + 문화 노트 1개의 마이크로 코스 체계로 회차마다 즉시 배포`)
-  }
-  while (actions.length < 1) actions.push('데이터 표본이 더 누적되면 액션 제안 자동 생성')
-
   return `
     <div class="card" style="border-left:3px solid #ef4444">
       <div class="card-header">
@@ -750,72 +676,8 @@ function renderYoutubeCard(s) {
       </div>
       <div class="card-body" style="padding:0">
 
-        <!-- 🔥 지금 무슨 일이 일어나고 있나 (Top 3) -->
-        <div style="padding:16px 18px;border-bottom:1px solid rgba(255,255,255,0.05);background:rgba(239,68,68,0.04)">
-          <div style="font-size:12px;color:#ef4444;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">
-            🔥 지금 무슨 일이 일어나고 있나
-          </div>
-          <div style="display:flex;flex-direction:column;gap:8px">
-            ${top3.slice(0, 3).map((t, i) => `
-              <div style="display:flex;gap:10px;align-items:flex-start;font-size:13px;line-height:1.5;color:var(--text-primary)">
-                <span style="flex-shrink:0;font-size:16px">${t.icon}</span>
-                <span><span style="color:${t.color};font-weight:700;margin-right:4px">${i+1}.</span>${t.text}</span>
-              </div>`).join('')}
-          </div>
-        </div>
-
-        <!-- 💬 유저 행동 -->
-        ${reactions.length > 0 ? `
-        <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.05)">
-          <div style="font-size:12px;color:#ef4444;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">
-            💬 유저가 가장 많이 한 행동
-          </div>
-          <div style="display:flex;flex-direction:column;gap:6px">
-            ${reactions.slice(0, 3).map(rp => `
-              <div style="padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:4px;border-left:2px solid ${YT_REACTION_COLOR[rp.category] || '#6b7280'}">
-                <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">
-                  <span style="font-size:13px;font-weight:600">${escHtml(rp.label)}</span>
-                  <span style="font-size:11px;color:${YT_REACTION_COLOR[rp.category] || '#6b7280'};font-weight:700">${rp.count}건</span>
-                </div>
-                ${(rp.examples || []).slice(0, 1).map(ex => `
-                  <div style="font-size:11px;color:var(--text-muted);font-style:italic;line-height:1.5">"${escHtml(ex)}"</div>`).join('')}
-              </div>`).join('')}
-          </div>
-        </div>` : ''}
-
-        <!-- 📌 핵심 인사이트 + 💡 액션 제안 -->
-        <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.05);background:rgba(167,139,250,0.04)">
-          <div style="margin-bottom:12px">
-            <div style="font-size:12px;color:#a78bfa;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px">
-              📌 핵심 인사이트
-            </div>
-            <div style="font-size:14px;line-height:1.45;color:var(--text-primary);font-weight:600">
-              ${escHtml(coreInsight)}
-            </div>
-          </div>
-          <div style="background:rgba(255,255,255,0.035);border-radius:6px;padding:10px 12px">
-            <div style="font-size:11px;color:#a78bfa;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:7px">
-              💡 액션 제안 (Claude의 의견)
-            </div>
-            <div style="display:flex;flex-direction:column;gap:6px">
-              ${actions.slice(0, 3).map((a, i) => `
-                <div style="display:flex;gap:8px;font-size:12.5px;line-height:1.5;color:var(--text-primary)">
-                  <span style="color:#a78bfa;font-weight:700;flex-shrink:0">${i+1}.</span>
-                  <span>${escHtml(a)}</span>
-                </div>`).join('')}
-            </div>
-          </div>
-        </div>
-
-        <!-- 📊 근거 데이터 (접힘) -->
-        <div data-collapse-id="yt-evidence" style="padding:12px 18px">
-          <button onclick="toggleCollapse('yt-evidence', this)" data-collapse-label="📊 근거 데이터 (영상·채널·콘텐츠 분포) ▼"
-            style="width:100%;padding:8px 10px;background:rgba(255,255,255,0.025);border:1px dashed rgba(255,255,255,0.12);border-radius:6px;font-size:11.5px;color:var(--text-muted);cursor:pointer;text-align:left;transition:background 0.15s"
-            onmouseover="this.style.background='rgba(255,255,255,0.05)'"
-            onmouseout="this.style.background='rgba(255,255,255,0.025)'">
-            📊 근거 데이터 (영상·채널·콘텐츠 분포) ▼
-          </button>
-          <div data-collapse-extra style="display:none;margin-top:12px">
+        <!-- 📊 근거 데이터 (펼친 상태로 직접 노출) -->
+        <div style="padding:12px 18px">
 
             <!-- 인기 콘텐츠 TOP -->
             <div style="margin-bottom:14px">
@@ -829,7 +691,7 @@ function renderYoutubeCard(s) {
                     <div style="font-size:10px;color:var(--text-muted);margin-top:3px">
                       <span style="color:${YT_CONTENT_COLOR[v.contentType] || '#6b7280'}">${v.contentType}</span>
                       · ${escHtml(v.channel)}
-                      · 👁 ${fmtViews(v.views || 0)}${v.likes ? ' · 👍 ' + fmtViews(v.likes) : ''}
+                      · 👁 ${fmtViews(v.views || 0)}${v.likes ? ' · 👍 ' + fmtViews(v.likes) : ''}${(v.commentCount || v.comments?.length) ? ' · 💬 ' + fmtViews(v.commentCount || v.comments.length) : ''}
                       ${v.publishedText ? ' · ' + escHtml(v.publishedText) : ''}
                     </div>
                   </div>
@@ -856,7 +718,6 @@ function renderYoutubeCard(s) {
                   </span>`).join('')}
               </div>
             </div>
-          </div>
         </div>
 
       </div>

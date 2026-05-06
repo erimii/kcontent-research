@@ -80,7 +80,7 @@ function extractPhrases(text: string): Set<string> {
   return phrases
 }
 
-// ── 1. 인기 콘텐츠 TOP ──────────────────────────────────────
+// ── 1. 인기 콘텐츠 TOP (조회수 정렬) ──
 function getTopVideos(videos: YoutubeVideo[], n: number): YoutubeVideo[] {
   return [...videos].sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, n)
 }

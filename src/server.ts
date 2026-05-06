@@ -464,11 +464,6 @@ app.get('/api/newsletter/:id', (req, res) => {
         <div style="font-size:14px;font-weight:700;color:#1a1a2e;margin-bottom:6px;padding-bottom:8px;border-bottom:2px solid #f0f2f8">▶️ SNS 버즈 분석 (YouTube)</div>
         <div style="font-size:11px;color:#9ba3bf;margin-bottom:12px">${yt.totalVideos}개 영상 · 댓글 ${yt.totalComments}개 분석</div>
 
-        <div style="padding:10px 12px;background:#fef5f5;border-left:3px solid #ef4444;border-radius:4px;margin-bottom:12px;font-size:12px;line-height:1.6">
-          ${escNl(yt.oneLineSummary)}
-          ${yt.buzzInsight || yt.fandomFlowInsight ? `<div style="margin-top:6px;font-size:11px;color:#5d6680;line-height:1.55">${escNl([yt.buzzInsight, yt.fandomFlowInsight].filter(Boolean).join(' · '))}</div>` : ''}
-        </div>
-
         <!-- TOP 3 영상 -->
         ${(yt.topVideos || []).slice(0, 3).map((v: any, i: number) => `
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border:1px solid #e8eaf2;border-radius:6px;margin-bottom:6px">
@@ -486,12 +481,6 @@ app.get('/api/newsletter/:id', (req, res) => {
         ${(yt.contentTypeStats || []).length > 0 ? `
           <div style="margin-top:8px;font-size:11px;color:#5d6680">
             <strong>콘텐츠 유형:</strong> ${(yt.contentTypeStats || []).slice(0, 5).map((c: any) => `${escNl(c.label)} <strong>${c.count}</strong>`).join(' · ')}
-          </div>` : ''}
-
-        <!-- 댓글 반응 패턴 -->
-        ${(yt.reactionPatterns || []).length > 0 ? `
-          <div style="margin-top:6px;font-size:11px;color:#5d6680">
-            <strong>댓글 반응:</strong> ${(yt.reactionPatterns || []).slice(0, 4).map((rp: any) => `${escNl(rp.label)} <strong>${rp.count}</strong>`).join(' · ')}
           </div>` : ''}
       </td></tr>` : ''}
 

@@ -4,13 +4,16 @@
 // ============================================================
 
 import type { YoutubeVideo, YoutubeComment } from '../types/index.js'
+import { KNOWN_ACTORS_STATIC, KNOWN_DRAMAS_STATIC } from '../data/known-dramas-static.js'
 
 // 검색 해시태그 — 공식·드라마 리뷰 영상 잘 노출되는 태그 위주로 확장
 const HASHTAGS = [
   '#kdrama', '#koreandrama', '#netflixkdrama',
   '#kdramareview', '#kdramarecap', '#kdramareaction',
   '#koreanactor', '#kdramaclip', '#kdramashorts',
-  '#kpop',
+  '#kvariety', '#kvarietyshow', '#koreanvariety',
+  '#runningman', '#knowingbros',
+  '#kcontent',
 ]
 
 // ── 공식 채널 패턴 (Netflix/방송사/엔터사) ─────────────
@@ -48,6 +51,62 @@ function classifyChannelType(channel: string): 'official' | 'influencer' | 'comm
   if (OFFICIAL_PATTERNS.some((re) => re.test(channel))) return 'official'
   if (INFLUENCER_PATTERNS.some((re) => re.test(channel))) return 'influencer'
   return 'community'
+}
+
+// ── K-content 마커 (제목·설명·해시태그가 실제 K-콘텐츠 다루는지 검증) ──
+// kpop은 제외 (사용자 정책: kpop 트랙 제외, 드라마·버라이어티 중심)
+const K_CONTENT_KEYWORDS = [
+  /\b(korean|korea\b)/i,
+  /\bk-?drama\b/i,
+  /\bk-?variety\b/i,
+  /\bk-?content\b/i,
+  /\bhallyu\b/i,
+  /\bkbs\b|\bsbs\b|\bmbc\b|\btvn\b|\bjtbc\b/i,
+  /\bnetflix korea\b|\bthe swoon\b|\bkocowa\b/i,
+  // 대표 K-쇼명
+  /\brunning man\b|\bknowing bros\b|\bmen on a mission\b|\bi live alone\b|\bnew journey to the west\b/i,
+  /\b(squid game|kingdom|crash landing|extraordinary attorney|business proposal|all of us are dead|reply 19\d\d)\b/i,
+]
+const HANGUL_RE = /[가-힣]/
+
+const KNOWN_ACTOR_LOWER = new Set(KNOWN_ACTORS_STATIC.map((s) => s.toLowerCase()))
+const KNOWN_DRAMA_LOWER = new Set(KNOWN_DRAMAS_STATIC.map((s) => s.toLowerCase()))
+
+// 비-K 드라마 명시적 제외 (제목에 등장하면 무조건 탈락)
+const NON_K_DRAMA_RE = /\b(c-?drama|chinese drama|j-?drama|japanese drama|thai drama|t-?drama|taiwanese drama|filipino drama|indian drama|turkish drama|donghua)\b/i
+
+// 북미 외 언어/로컬 신호 — 채널 주인이 북미일 가능성을 낮추는 명백한 단서
+// (한국어/한자는 K-content이므로 제외 대상 아님)
+const NON_NA_SCRIPT_RE = /[ऀ-ॿ؀-ۿЀ-ӿ฀-๿]/  // Devanagari + Arabic + Cyrillic + Thai
+const NON_NA_LATIN_WORDS_RE = /\b(bhai|yaar|matlab|achha|kya hai|mera|hamara|tumhara|nahi|haan ji|bik gaya|ek number|sab kuch|filipino po|talaga|naman po)\b/i
+// 자주 등장하는 인도 영문 리액션 채널 패턴 — Hindi 단음절 단어가 영어 문장 안에 섞임
+const HINDI_INTERMIX_RE = /\b(bhai|yaar)\b/i
+
+// 공식 채널이라도 비-NA 지역 분점/현지화 채널이면 제외
+// (Netflix Korea / KBS WORLD TV는 통과, KBS WORLD Latino / Disney+ Philippines / Viu Indonesia 등은 탈락)
+const NON_NA_REGIONAL_OFFICIAL_RE = /\b(philippines|filipino|india|indonesia|vietnam|malaysia|thailand|thai\b|brasil|brazil|brasileir|latino|latina|español|espanol|french|francais|deutschland|polska|t[üu]rkiye|t[üu]rkce|arabia|arabic)\b/i
+
+function hasKContentMarker(title: string, description: string, hashtag: string, channel: string = ''): boolean {
+  const text = `${title} ${description}`
+  const fullText = `${title} ${description} ${channel}`
+  // 비-K 드라마 명시 → 즉시 탈락
+  if (NON_K_DRAMA_RE.test(text)) return false
+  // 북미 외 언어 신호 → 제목·설명·채널명 어디서든 등장 시 즉시 탈락
+  if (NON_NA_SCRIPT_RE.test(fullText)) return false
+  if (NON_NA_LATIN_WORDS_RE.test(fullText)) return false
+  if (HINDI_INTERMIX_RE.test(fullText)) return false
+  if (HANGUL_RE.test(text)) return true
+  if (K_CONTENT_KEYWORDS.some((re) => re.test(text))) return true
+  // 해시태그가 명확한 K-드라마/K-콘텐츠 태그면 통과 (kpop 제외이므로 안전)
+  if (/^#k(drama|orean|netflix|variety|content|wave)/i.test(hashtag)) {
+    // 단, K-쇼명 해시태그(#runningman/#knowingbros)는 게스트 영상 누수 방지를 위해 별도 마커 요구
+    if (!/^#(runningman|knowingbros|kvariety)/i.test(hashtag)) return true
+  }
+  // 알려진 K-배우/드라마 이름 매칭
+  const lower = text.toLowerCase()
+  for (const a of KNOWN_ACTOR_LOWER) if (a.length >= 6 && lower.includes(a)) return true
+  for (const d of KNOWN_DRAMA_LOWER) if (d.length >= 5 && lower.includes(d)) return true
+  return false
 }
 
 function viewsToNumber(s: string): number {
@@ -124,8 +183,18 @@ async function fetchVideoDetail(yt: any, video: Partial<YoutubeVideo>, maxCommen
     const channel = info.basic_info?.channel?.name || video.channel || ''
 
     let comments: YoutubeComment[] = []
+    let commentCount: number | undefined
     try {
       const cmts = await yt.getComments(video.id)
+      // 총 댓글 수 (가능한 경로 여러 군데 시도)
+      const totalText =
+        cmts.header?.count?.text ||
+        cmts.header?.comment_count?.text ||
+        cmts.header?.contents?.[0]?.text ||
+        cmts.header?.title?.text || ''
+      const parsedTotal = totalText ? viewsToNumber(totalText) : 0
+      if (parsedTotal > 0) commentCount = parsedTotal
+
       const list = cmts.contents || []
       for (const c of list) {
         const cm = c.comment
@@ -153,6 +222,7 @@ async function fetchVideoDetail(yt: any, video: Partial<YoutubeVideo>, maxCommen
       duration: video.duration,
       publishedText: video.publishedText,
       description: description.slice(0, 1500),
+      commentCount,
       hashtag: video.hashtag || '',
       contentType: classifyContentType(title, description),
       channelType: classifyChannelType(channel),
@@ -200,14 +270,35 @@ export async function crawlYoutubeBuzz(
   const dedup = [...merged.values()]
   console.log(`  [YouTube] dedup 후 ${dedup.length}개 유니크 영상`)
 
-  // community 영상 제외 — official + influencer만 유지
-  const filtered = dedup.filter((v) => {
+  // community 영상 제외 — official + influencer + 외국인 리액션/리뷰 영상 유지
+  // (community 채널이라도 영상 자체가 kdrama reaction/review/recap이면 포함 — 외국 개인 유튜버 커버)
+  const REACTION_REVIEW_TITLE = /\b(reaction|reacting|react to|first time watching|review|recap|recapped|breakdown|explained|ranking|tier list|top \d+|best (kdrama|korean)|recommend|watched)\b/i
+  const channelFiltered = dedup.filter((v) => {
     const t = classifyChannelType(v.channel || '')
-    return t === 'official' || t === 'influencer'
+    if (t === 'official' || t === 'influencer') return true
+    // community 채널 → 영상 제목이 리액션/리뷰성이면 포함 (해시태그 검색 결과라 kdrama 맥락은 보장됨)
+    return REACTION_REVIEW_TITLE.test(v.title || '')
   })
+
+  // K-content 마커 필터 — 제목/해시태그가 실제 K-콘텐츠 다루는지 검증
+  // + 북미 외 언어 신호 제거 (제목·설명·채널명 동시 검사)
+  // 공식 채널은 K-marker / 비-NA 언어 검사 면제 (이미 신뢰됨), 단 비-NA 지역 분점은 제외
+  const filtered = channelFiltered.filter((v) => {
+    const ch = v.channel || ''
+    const isOfficial = classifyChannelType(ch) === 'official'
+    if (isOfficial) {
+      // 공식 채널이라도 동남아·라틴 등 지역 분점이면 탈락
+      if (NON_NA_REGIONAL_OFFICIAL_RE.test(ch)) return false
+      return true
+    }
+    return hasKContentMarker(v.title || '', '', v.hashtag || '', ch)
+  })
+  const droppedByKMarker = channelFiltered.length - filtered.length
+
   const officialN = filtered.filter((v) => classifyChannelType(v.channel || '') === 'official').length
-  const influencerN = filtered.length - officialN
-  console.log(`  [YouTube] 채널 필터링 후 ${filtered.length}개 (공식 ${officialN} · 인플루언서 ${influencerN})`)
+  const influencerN = filtered.filter((v) => classifyChannelType(v.channel || '') === 'influencer').length
+  const communityN = filtered.length - officialN - influencerN
+  console.log(`  [YouTube] 채널 필터링 후 ${filtered.length}개 (공식 ${officialN} · 인플루언서 ${influencerN} · 외국인 리액션 ${communityN}) · K-marker 누수 ${droppedByKMarker}건 제거`)
 
   // views 정렬 후 상위 N개에 대해 댓글 수집
   const candidates = filtered.sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, topN)
