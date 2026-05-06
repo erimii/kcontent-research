@@ -13,7 +13,7 @@ import type {
 } from '../types/index.js'
 
 // ── 검색 키워드 (단일 영문 단어만 — 띄어쓰기는 라이브러리 retry 누적으로 매우 느려짐) ──
-const KEYWORDS = ['kdrama', 'koreandrama', 'kdramareview', 'kdramareaction', 'kdramaclip', 'kvarietyshow']
+const KEYWORDS = ['kdrama', 'koreandrama', 'kdramareview', 'kdramareaction', 'kdramaclip', 'kvarietyshow', 'lovelyrunner']
 const PAGES_PER_KEYWORD = 3
 const PER_REQUEST_TIMEOUT_MS = 15000     // 단일 (kw, page) timeout (라이브러리 retry 누적 캡)
 const RETRY_FAILED_AT_END = true         // 1차 실패한 (kw, page)들 끝에 한 번만 재시도
