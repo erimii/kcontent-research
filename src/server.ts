@@ -464,18 +464,28 @@ app.get('/api/newsletter/:id', (req, res) => {
         <div style="font-size:14px;font-weight:700;color:#1a1a2e;margin-bottom:6px;padding-bottom:8px;border-bottom:2px solid #f0f2f8">▶️ SNS 버즈 분석 (YouTube)</div>
         <div style="font-size:11px;color:#9ba3bf;margin-bottom:12px">${yt.totalVideos}개 영상 · 댓글 ${yt.totalComments}개 분석</div>
 
-        <!-- TOP 3 영상 -->
-        ${(yt.topVideos || []).slice(0, 3).map((v: any, i: number) => `
-          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border:1px solid #e8eaf2;border-radius:6px;margin-bottom:6px">
-            <tr><td style="padding:10px 12px">
-              <a href="https://www.youtube.com/watch?v=${escNl(v.id)}" style="font-size:12px;font-weight:700;color:#1a1a2e;text-decoration:none">
-                <span style="color:#ef4444;margin-right:5px">#${i + 1}</span>${escNl((v.title || '').slice(0, 100))}
-              </a>
-              <div style="font-size:10px;color:#9ba3bf;margin-top:3px">
-                ${escNl(v.channel || '')}${v.isOfficial ? ' · ✓공식' : ''} · 👁 ${(v.views || 0).toLocaleString()}${v.likes ? ' · 👍 ' + v.likes.toLocaleString() : ''}
-              </div>
-            </td></tr>
-          </table>`).join('')}
+        <!-- 🏆 작품별 화제도 -->
+        ${(yt.contentGroups || []).length > 0 ? `
+          <div style="font-size:11px;color:#fbbf24;font-weight:700;text-transform:uppercase;margin:8px 0 6px">🏆 작품별 화제도</div>
+          ${(yt.contentGroups || []).map((g: any) => `
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border:1px solid #e8eaf2;border-radius:6px;margin-bottom:6px;background:#fffbf0">
+              <tr><td style="padding:10px 12px">
+                <a href="https://www.youtube.com/watch?v=${escNl(g.topVideoId)}" style="font-size:12px;font-weight:700;color:#1a1a2e;text-decoration:none">
+                  🏆 ${escNl(g.title)}
+                </a>
+                <div style="font-size:10px;color:#9ba3bf;margin-top:3px">
+                  영상 ${g.videoCount} · 👁 ${(g.totalViews || 0).toLocaleString()} · 👍 ${(g.totalLikes || 0).toLocaleString()} · 💬 ${(g.totalComments || 0).toLocaleString()}
+                </div>
+                ${(g.topComments || []).slice(0, 1).map((c: any) => {
+                  const display = c.textKo || c.text || ''
+                  return `
+                  <div style="font-size:11px;color:#1a1a2e;margin-top:5px;padding:5px 8px;background:#fff;border-radius:3px;line-height:1.5">
+                    "${escNl(display.replace(/\\s+/g, ' ').trim().slice(0, 100))}${display.length > 100 ? '…' : ''}" <span style="color:#9ba3bf">— 👍 ${c.likes}</span>
+                  </div>`
+                }).join('')}
+              </td></tr>
+            </table>`).join('')}
+        ` : ''}
 
         <!-- 콘텐츠 유형 -->
         ${(yt.contentTypeStats || []).length > 0 ? `
@@ -1049,7 +1059,7 @@ app.post('/api/gtrends/refresh', async (req, res) => {
 // ============================================================
 // YouTube SNS 버즈 분석
 // ============================================================
-const YT_CACHE_KEY = 'youtube_buzz_v1'
+const YT_CACHE_KEY = 'youtube_buzz_v3'  // v3: contentGroups + topComments + 한국어 번역(textKo)
 const YT_CACHE_TTL_SEC = 3 * 3600  // 3시간
 
 app.get('/api/youtube', (_req, res) => {
@@ -1086,6 +1096,13 @@ app.post('/api/youtube/refresh', async (req, res) => {
     saveCrawlLog('youtube', summary.totalVideos, summary.totalVideos > 0 ? 'success' : 'failed')
     if (summary.totalVideos === 0) {
       return res.status(503).json({ ok: false, error: 'YouTube 크롤링 결과 0개' })
+    }
+    // 댓글 한국어 번역 (Groq AI, 캐시됨) — 캐시 저장 전에 실행
+    try {
+      const { translateYoutubeSummaryInPlace } = await import('./pipeline/translateYoutube.js')
+      await translateYoutubeSummaryInPlace(summary)
+    } catch (e) {
+      console.warn(`[YouTube] 번역 실패 (영문 그대로): ${(e as Error).message}`)
     }
     const ttl = setMdlCache(YT_CACHE_KEY, summary, YT_CACHE_TTL_SEC)
     console.log(`[YouTube] 완료 (${((Date.now() - t0) / 1000).toFixed(1)}s) - ${summary.totalVideos}개 영상, 댓글 ${summary.totalComments}개`)

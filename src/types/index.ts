@@ -439,12 +439,27 @@ export interface YoutubeContentTypeStat {
   totalViews: number
 }
 
-export interface YoutubeReactionPattern {
-  pattern: string                // "OMG", "crying", "where to watch"
-  label: string                  // "감정 폭발", "정보 요청"
-  category: 'emotion' | 'empathy' | 'info_request' | 'praise' | 'criticism'
-  count: number
-  examples: string[]             // 대표 댓글 인용 (1~2개)
+export interface YoutubeTopComment {
+  text: string
+  textKo?: string                // 한국어 번역 (Groq AI, 캐시됨)
+  author: string
+  likes: number
+  videoTitle: string
+  videoId: string
+  videoChannel: string
+}
+
+export interface YoutubeContentGroup {
+  title: string                  // 정규화된 작품명 (예: "If Wishes Could Kill")
+  videoCount: number
+  totalViews: number
+  totalLikes: number
+  totalComments: number          // commentCount 합산 (없으면 comments.length)
+  topVideoId: string
+  topVideoTitle: string
+  topVideoThumbnail?: string
+  topComments: YoutubeTopComment[]  // 이 작품 영상들의 댓글 중 좋아요 TOP 2
+  matchSource: 'known' | 'trailer-pattern' | 'show-name'
 }
 
 export interface YoutubePhrase {
@@ -479,11 +494,9 @@ export interface YoutubeSummary {
   // 3. 발화 내용 (제목·설명에서 반복 phrase)
   topPhrases: YoutubePhrase[]
 
-  // 4. 댓글 반응 패턴
-  reactionPatterns: YoutubeReactionPattern[]
+  // 4. 작품별 화제도 (영상 → 작품 단위 집계)
+  contentGroups: YoutubeContentGroup[]
 
-  // 5. 인사이트 (자연어)
-  buzzInsight: string            // "토론 → 밈 → 확산" 흐름 해석
-  fandomFlowInsight: string      // 팬덤 → 외부 확산 분석
-  oneLineSummary: string         // 한 줄 요약
+  // 5. 가장 공감 받은 댓글 TOP 10 (좋아요순)
+  topComments: YoutubeTopComment[]
 }

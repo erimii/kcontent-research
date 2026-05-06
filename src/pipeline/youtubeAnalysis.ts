@@ -1,7 +1,11 @@
 // ============================================================
 // YouTube SNS 버즈 분석
-// 1) 인기 콘텐츠 TOP, 2) 콘텐츠 유형 분포, 3) 발화 phrase,
-// 4) 댓글 반응 패턴, 5) 자연어 인사이트
+// 1) 인기 콘텐츠 TOP (engagement score)
+// 2) 콘텐츠 유형 분포
+// 3) 채널 타입 분포
+// 4) 발화 phrase
+// 5) 작품별 화제도 (contentGroups)
+// 6) 댓글 TOP 10 (좋아요순)
 // ============================================================
 
 import type {
@@ -11,10 +15,12 @@ import type {
   YoutubeContentTypeStat,
   YoutubeChannelTypeStat,
   YoutubeChannelType,
-  YoutubeReactionPattern,
   YoutubePhrase,
+  YoutubeContentGroup,
+  YoutubeTopComment,
 } from '../types/index.js'
 import { crawlYoutubeBuzz } from '../crawlers/youtube.js'
+import { KNOWN_DRAMAS_STATIC } from '../data/known-dramas-static.js'
 
 const CHANNEL_TYPE_LABEL: Record<YoutubeChannelType, string> = {
   official: '✓ 공식 (Netflix·방송사·엔터사)',
@@ -31,20 +37,6 @@ const CONTENT_TYPE_LABEL: Record<YoutubeContentType, string> = {
   actor: '🌟 배우 중심',
   other: '🌐 기타',
 }
-
-// 댓글 반응 패턴 정의
-const REACTION_PATTERNS: { pattern: RegExp; label: string; raw: string; category: YoutubeReactionPattern['category'] }[] = [
-  { pattern: /\bomg\b|\bog!?\b|oh my god/i, label: '감정 폭발 (OMG)', raw: 'OMG', category: 'emotion' },
-  { pattern: /\bcrying\b|i'?m cry|sobbing|tears/i, label: '눈물 반응', raw: 'crying', category: 'emotion' },
-  { pattern: /😭|😢|💔|😍|🥰|😘|🥺/u, label: '이모지 반응', raw: '이모지', category: 'emotion' },
-  { pattern: /\bobsessed\b|hooked|addicted/i, label: '몰입/중독', raw: 'obsessed', category: 'emotion' },
-  { pattern: /(where (can i )?watch|how to watch|what (drama|show|series) is this|what'?s the name|drama name|title please)/i, label: '정보 요청 (어디서 보나요?)', raw: 'info request', category: 'info_request' },
-  { pattern: /\brelatable\b|same|me too|literally me|so real/i, label: '공감 (relatable)', raw: 'relatable', category: 'empathy' },
-  { pattern: /\b(masterpiece|iconic|goat|underrated|best (drama|kdrama) ever|10\/10|chef'?s kiss)\b/i, label: '최고 평가 (masterpiece)', raw: 'praise', category: 'praise' },
-  { pattern: /\b(boring|disappointing|cringe|overrated|skip|drop|worst)\b/i, label: '비판 (boring/cringe)', raw: 'criticism', category: 'criticism' },
-  { pattern: /\b(rewatching|rewatched|nth time|second time)\b/i, label: '재시청', raw: 'rewatch', category: 'empathy' },
-  { pattern: /\b(recommend|recommendation|similar to|reminds me of)\b/i, label: '추천 요청·응답', raw: 'recommendation', category: 'info_request' },
-]
 
 // stopwords
 const STOPWORDS = new Set([
@@ -80,13 +72,24 @@ function extractPhrases(text: string): Set<string> {
   return phrases
 }
 
-// ── 1. 인기 콘텐츠 TOP (조회수 정렬) ──
+// ── engagement score ────────────────────────────────────────
+function engagementScore(v: YoutubeVideo): number {
+  const views = v.views || 0
+  const likes = v.likes || 0
+  const comments = (typeof v.commentCount === 'number' && v.commentCount > 0)
+    ? v.commentCount
+    : (v.comments?.length || 0)
+  return Math.log10(views + 1) * 1
+       + Math.log10(likes + 1) * 2
+       + Math.log10(comments + 1) * 5
+}
+
+// ── 1. 인기 콘텐츠 TOP ──────────────────────────────────────
 function getTopVideos(videos: YoutubeVideo[], n: number): YoutubeVideo[] {
-  return [...videos].sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, n)
+  return [...videos].sort((a, b) => engagementScore(b) - engagementScore(a)).slice(0, n)
 }
 
 // ── 2. 콘텐츠 유형 분포 ─────────────────────────────────────
-// ── 2-2. 채널 타입 분포 ─────────────────────────────────────
 function buildChannelTypeStats(videos: YoutubeVideo[]): YoutubeChannelTypeStat[] {
   const m = new Map<YoutubeChannelType, { count: number; totalViews: number }>()
   for (const v of videos) {
@@ -129,90 +132,151 @@ function buildTopPhrases(videos: YoutubeVideo[], topN: number): YoutubePhrase[] 
     .map(([phrase, count]) => ({ phrase, count }))
 }
 
-// ── 4. 댓글 반응 패턴 ──────────────────────────────────────
-function buildReactionPatterns(videos: YoutubeVideo[]): YoutubeReactionPattern[] {
-  const stat = REACTION_PATTERNS.map((rp) => ({
-    pattern: rp.raw, label: rp.label, category: rp.category, count: 0, examples: [] as string[],
-  }))
+// ── 4. 작품별 화제도 ────────────────────────────────────────
+const KSHOWS_STATIC = [
+  'Running Man', 'Knowing Bros', 'Men on a Mission', 'I Live Alone',
+  'New Journey to the West', 'My Little Old Boy', 'Master in the House',
+  '2 Days 1 Night', '1 Night 2 Days', 'Infinite Challenge', 'Hangout with Yoo',
+  'The Genius', 'Crime Scene', 'Heart Signal', 'Single Inferno',
+]
 
-  for (const v of videos) {
-    for (const c of v.comments) {
-      for (let i = 0; i < REACTION_PATTERNS.length; i++) {
-        if (REACTION_PATTERNS[i].pattern.test(c.text)) {
-          stat[i].count++
-          if (stat[i].examples.length < 2) {
-            const trimmed = c.text.replace(/\s+/g, ' ').trim().slice(0, 140)
-            if (!stat[i].examples.includes(trimmed)) stat[i].examples.push(trimmed)
-          }
-        }
-      }
+// Title Case 변환 ("vincenzo" → "Vincenzo", "all of us are dead" → "All of Us Are Dead")
+const TITLE_CASE_LOWERCASE_WORDS = new Set(['of','the','and','in','on','at','to','for','a','an','is','are','as'])
+function toTitleCase(s: string): string {
+  return s.split(/\s+/).map((w, i) => {
+    if (i > 0 && TITLE_CASE_LOWERCASE_WORDS.has(w.toLowerCase())) return w.toLowerCase()
+    return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+  }).join(' ')
+}
+
+function extractContentTitle(video: YoutubeVideo): { title: string; source: 'known' | 'trailer-pattern' | 'show-name' } | null {
+  const title = video.title || ''
+  const text = `${title} ${video.description || ''}`.toLowerCase()
+
+  // 1. KNOWN_DRAMAS_STATIC 사전 매칭 (4자+ 작품명만)
+  // 긴 작품명을 우선 매칭 (예: "All of Us Are Dead"가 "Dead"보다 우선)
+  const dramasSorted = [...KNOWN_DRAMAS_STATIC].sort((a, b) => b.length - a.length)
+  for (const drama of dramasSorted) {
+    if (drama.length < 4) continue
+    if (text.includes(drama.toLowerCase())) {
+      return { title: toTitleCase(drama), source: 'known' }
     }
   }
-  return stat.filter((s) => s.count > 0).sort((a, b) => b.count - a.count)
-}
 
-// ── 5. 자연어 인사이트 ─────────────────────────────────────
-function buildOneLineSummary(videos: YoutubeVideo[], stats: YoutubeContentTypeStat[]): string {
-  if (videos.length === 0) return 'YouTube 데이터 없음.'
-  const top = videos[0]
-  const totalViews = videos.reduce((s, v) => s + (v.views || 0), 0)
-  const dominant = stats.find((s) => s.type !== 'other') || stats[0]
-  const dominantLabel = dominant ? dominant.label : '다양한 유형'
-  return `K-콘텐츠 SNS 버즈는 ${dominantLabel} 중심으로 형성되어 있으며, 최상위 영상 '${top.title.slice(0, 80)}${top.title.length > 80 ? '...' : ''}'(${(top.views || 0).toLocaleString()} 조회수)를 비롯해 총 ${videos.length}개 영상이 ${(totalViews / 1_000_000).toFixed(1)}M+ 조회수를 기록했습니다.`
-}
-
-function buildBuzzInsight(videos: YoutubeVideo[], stats: YoutubeContentTypeStat[], reactions: YoutubeReactionPattern[]): string {
-  const total = videos.length || 1
-  const sceneCount = stats.find((s) => s.type === 'scene')?.count || 0
-  const memeCount = stats.find((s) => s.type === 'meme')?.count || 0
-  const editCount = stats.find((s) => s.type === 'edit')?.count || 0
-  const reviewCount = stats.find((s) => s.type === 'review')?.count || 0
-  const reactionCount = stats.find((s) => s.type === 'reaction')?.count || 0
-
-  const flowParts: string[] = []
-  if (reviewCount > 0) flowParts.push(`리뷰·추천(${reviewCount}건)으로 **토론**이 시작되고`)
-  if (sceneCount + reactionCount > 0) flowParts.push(`명장면·반응 영상(${sceneCount + reactionCount}건)으로 **밈화 직전 단계**가 형성되며`)
-  if (memeCount + editCount > 0) flowParts.push(`밈·편집 영상(${memeCount + editCount}건)으로 **확산**되는 흐름`)
-
-  const dominantReaction = reactions[0]
-  const reactionLine = dominantReaction
-    ? ` 댓글에서는 '${dominantReaction.label}' 패턴(${dominantReaction.count}건)이 가장 두드러져, 시청자들이 정보 소비를 넘어 **감정·공감 차원의 적극적 반응**을 보이고 있습니다.`
-    : ''
-
-  if (flowParts.length === 0) return `K-콘텐츠 영상이 ${videos.length}개 분석되었으며 특정 흐름은 명확하지 않습니다.${reactionLine}`
-  return `${flowParts.join(', ')}이 관찰됩니다.${reactionLine}`
-}
-
-function buildFandomFlowInsight(videos: YoutubeVideo[], stats: YoutubeContentTypeStat[]): string {
-  const total = videos.length || 1
-  const officialCount = videos.filter((v) => v.channelType === 'official').length
-  const influencerCount = videos.filter((v) => v.channelType === 'influencer').length
-  const officialRatio = officialCount / total
-  const influencerRatio = influencerCount / total
-
-  const topVideos = videos.slice(0, 5)
-  const topAvgViews = topVideos.reduce((s, v) => s + (v.views || 0), 0) / Math.max(topVideos.length, 1)
-
-  const memeRatio = ((stats.find((s) => s.type === 'meme')?.count || 0)
-    + (stats.find((s) => s.type === 'edit')?.count || 0)) / total
-
-  const parts: string[] = []
-  if (officialRatio >= 0.7) {
-    parts.push(`공식 채널(Netflix·방송사·엔터사) 영상이 ${Math.round(officialRatio * 100)}%로 절대 다수 — **공식 마케팅 주도형 확산** 양상`)
-  } else if (officialRatio >= 0.4) {
-    parts.push(`공식 ${Math.round(officialRatio * 100)}% · 인플루언서 ${Math.round(influencerRatio * 100)}%로 균형 — **공식 발신 + 리뷰어 증폭** 이상적 확산 구조`)
-  } else if (influencerRatio >= 0.5) {
-    parts.push(`인플루언서·리뷰어 채널 비중이 ${Math.round(influencerRatio * 100)}%로 우세 — **팬 큐레이션 매개 확산** (오피니언 리더 중심)`)
-  } else {
-    parts.push(`공식 ${Math.round(officialRatio * 100)}% · 인플루언서 ${Math.round(influencerRatio * 100)}%로 분산`)
+  // 2. 트레일러/티저 제목 패턴 — 첫 구분자 앞을 작품명으로
+  const m = title.match(/^(.+?)\s*[\|·:—–-]\s*(official\s+trailer|teaser\s*trailer|teaser|episode\s+\d+|highlight\s+trailer|highlight|recap|review|reaction|ep\s*\.?\s*\d+|behind|interview|trailer)/i)
+  if (m) {
+    let candidate = m[1].trim()
+      .replace(/\[[^\]]*\]/g, '')   // 대괄호 메타 제거: [SUB], [ENG SUB] 등
+      .replace(/\([^)]*\)/g, '')    // 괄호 메타 제거
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (candidate.length >= 3 && candidate.length <= 60) {
+      return { title: candidate, source: 'trailer-pattern' }
+    }
   }
 
-  if (memeRatio >= 0.25) parts.push(`밈·편집 영상 ${Math.round(memeRatio * 100)}%로 **팬덤 내부 → 일반 시청자 확산** 단계 진입`)
-  else if (topAvgViews >= 10_000_000) parts.push(`상위 영상 평균 조회수 ${(topAvgViews / 1_000_000).toFixed(1)}M으로 **메인스트림 진입** 확인`)
-  else if (topAvgViews >= 1_000_000) parts.push(`상위 영상 평균 ${(topAvgViews / 1_000_000).toFixed(1)}M 조회수로 일정 규모 도달`)
-  else parts.push(`아직 K-팬덤 핵심층 중심의 소비 단계`)
+  // 3. K-쇼 명시 매칭
+  for (const show of KSHOWS_STATIC) {
+    if (text.includes(show.toLowerCase())) {
+      return { title: show, source: 'show-name' }
+    }
+  }
 
-  return parts.join(', ') + '.'
+  return null
+}
+
+function getCommentCount(v: YoutubeVideo): number {
+  return (typeof v.commentCount === 'number' && v.commentCount > 0)
+    ? v.commentCount
+    : (v.comments?.length || 0)
+}
+
+function buildContentGroups(videos: YoutubeVideo[], n: number): YoutubeContentGroup[] {
+  type Acc = {
+    title: string
+    matchSource: YoutubeContentGroup['matchSource']
+    videos: YoutubeVideo[]
+    totalViews: number
+    totalLikes: number
+    totalComments: number
+  }
+  const acc = new Map<string, Acc>()
+
+  for (const v of videos) {
+    const matched = extractContentTitle(v)
+    if (!matched) continue
+    const key = matched.title.toLowerCase()
+    let entry = acc.get(key)
+    if (!entry) {
+      entry = {
+        title: matched.title,
+        matchSource: matched.source,
+        videos: [],
+        totalViews: 0,
+        totalLikes: 0,
+        totalComments: 0,
+      }
+      acc.set(key, entry)
+    }
+    entry.videos.push(v)
+    entry.totalViews += v.views || 0
+    entry.totalLikes += v.likes || 0
+    entry.totalComments += getCommentCount(v)
+  }
+
+  const groups: YoutubeContentGroup[] = [...acc.values()].map((e) => {
+    const sortedVideos = [...e.videos].sort((a, b) => engagementScore(b) - engagementScore(a))
+    const topVideo = sortedVideos[0]
+    // 이 작품 내 모든 댓글 → 좋아요순 TOP 2
+    const allComments = e.videos.flatMap((v) =>
+      v.comments.map((c) => ({
+        text: c.text,
+        author: c.author,
+        likes: c.likes || 0,
+        videoTitle: v.title,
+        videoId: v.id,
+        videoChannel: v.channel,
+      }))
+    )
+    const topComments = allComments.sort((a, b) => b.likes - a.likes).slice(0, 2)
+    return {
+      title: e.title,
+      videoCount: e.videos.length,
+      totalViews: e.totalViews,
+      totalLikes: e.totalLikes,
+      totalComments: e.totalComments,
+      topVideoId: topVideo.id,
+      topVideoTitle: topVideo.title,
+      topVideoThumbnail: topVideo.thumbnail,
+      topComments,
+      matchSource: e.matchSource,
+    }
+  })
+
+  // 작품 정렬: engagement score (집계값 기준)
+  groups.sort((a, b) => {
+    const scoreA = Math.log10(a.totalViews + 1) * 1 + Math.log10(a.totalLikes + 1) * 2 + Math.log10(a.totalComments + 1) * 5
+    const scoreB = Math.log10(b.totalViews + 1) * 1 + Math.log10(b.totalLikes + 1) * 2 + Math.log10(b.totalComments + 1) * 5
+    return scoreB - scoreA
+  })
+
+  return groups.slice(0, n)
+}
+
+// ── 5. 댓글 TOP 10 (좋아요순) ────────────────────────────────
+function buildGlobalTopComments(videos: YoutubeVideo[], n: number): YoutubeTopComment[] {
+  const all = videos.flatMap((v) =>
+    v.comments.map((c) => ({
+      text: c.text,
+      author: c.author,
+      likes: c.likes || 0,
+      videoTitle: v.title,
+      videoId: v.id,
+      videoChannel: v.channel,
+    }))
+  )
+  return all.sort((a, b) => b.likes - a.likes).slice(0, n)
 }
 
 // ── 메인 ───────────────────────────────────────────────────
@@ -231,11 +295,8 @@ export async function buildYoutubeSummary(
   const contentTypeStats = buildContentTypeStats(videos)
   const channelTypeStats = buildChannelTypeStats(videos)
   const topPhrases = buildTopPhrases(videos, 20)
-  const reactionPatterns = buildReactionPatterns(videos)
-
-  const oneLineSummary = buildOneLineSummary(topVideos, contentTypeStats)
-  const buzzInsight = buildBuzzInsight(videos, contentTypeStats, reactionPatterns)
-  const fandomFlowInsight = buildFandomFlowInsight(videos, contentTypeStats)
+  const contentGroups = buildContentGroups(videos, 6)
+  const topComments = buildGlobalTopComments(videos, 10)
 
   const now = new Date()
   return {
@@ -249,9 +310,7 @@ export async function buildYoutubeSummary(
     contentTypeStats,
     channelTypeStats,
     topPhrases,
-    reactionPatterns,
-    buzzInsight,
-    fandomFlowInsight,
-    oneLineSummary,
+    contentGroups,
+    topComments,
   }
 }

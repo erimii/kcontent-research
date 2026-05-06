@@ -13,7 +13,6 @@ const HASHTAGS = [
   '#koreanactor', '#kdramaclip', '#kdramashorts',
   '#kvariety', '#kvarietyshow', '#koreanvariety',
   '#runningman', '#knowingbros',
-  '#kcontent',
 ]
 
 // ── 공식 채널 패턴 (Netflix/방송사/엔터사) ─────────────
@@ -280,16 +279,15 @@ export async function crawlYoutubeBuzz(
     return REACTION_REVIEW_TITLE.test(v.title || '')
   })
 
-  // K-content 마커 필터 — 제목/해시태그가 실제 K-콘텐츠 다루는지 검증
-  // + 북미 외 언어 신호 제거 (제목·설명·채널명 동시 검사)
-  // 공식 채널은 K-marker / 비-NA 언어 검사 면제 (이미 신뢰됨), 단 비-NA 지역 분점은 제외
+  // 1차 K-content 마커 필터 — title + 채널명 + 해시태그 (description 없음)
+  // 공식 채널은 K-marker 면제 (description 없는 단계라 정확도 떨어짐 — 2차 단계에서 재검사)
+  // 단 비-NA 지역 분점은 채널명 기준 즉시 탈락
   const filtered = channelFiltered.filter((v) => {
     const ch = v.channel || ''
     const isOfficial = classifyChannelType(ch) === 'official'
     if (isOfficial) {
-      // 공식 채널이라도 동남아·라틴 등 지역 분점이면 탈락
       if (NON_NA_REGIONAL_OFFICIAL_RE.test(ch)) return false
-      return true
+      return true  // 1차에선 통과, 2차(detail fetch 후)에서 K-marker 재검사
     }
     return hasKContentMarker(v.title || '', '', v.hashtag || '', ch)
   })
@@ -301,19 +299,28 @@ export async function crawlYoutubeBuzz(
   console.log(`  [YouTube] 채널 필터링 후 ${filtered.length}개 (공식 ${officialN} · 인플루언서 ${influencerN} · 외국인 리액션 ${communityN}) · K-marker 누수 ${droppedByKMarker}건 제거`)
 
   // views 정렬 후 상위 N개에 대해 댓글 수집
-  const candidates = filtered.sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, topN)
-  console.log(`  [YouTube] 상위 ${candidates.length}개 영상 댓글 수집 중...`)
+  // 공식 채널은 1차 K-marker 면제로 통과했으므로 2차에서 description까지 검사하여 일부 탈락 → 오버샘플(50%)
+  const oversample = Math.ceil(topN * 1.5)
+  const candidates = filtered.sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, oversample)
+  console.log(`  [YouTube] 상위 ${candidates.length}개 영상 댓글 수집 중... (목표 ${topN}, 오버샘플 ${oversample})`)
 
-  const videos: YoutubeVideo[] = []
+  const fetched: YoutubeVideo[] = []
   const tasks = candidates.map((v) => fetchVideoDetail(yt, v, commentsPerVideo))
   // 동시성 제한 (5개씩)
   const batch = 5
   for (let i = 0; i < tasks.length; i += batch) {
     const slice = tasks.slice(i, i + batch)
     const settled = await Promise.allSettled(slice)
-    for (const r of settled) if (r.status === 'fulfilled' && r.value) videos.push(r.value)
+    for (const r of settled) if (r.status === 'fulfilled' && r.value) fetched.push(r.value)
   }
 
-  console.log(`  [YouTube] 총 ${videos.length}개 영상 (댓글 합계 ${videos.reduce((s, v) => s + v.comments.length, 0)}개)`)
+  // 2차 K-marker 필터 — description까지 포함하여 모든 영상(공식 채널 포함) 재검사
+  // 비-K 콘텐츠가 공식 채널에서 업로드된 케이스 차단 (예: Netflix 본채널의 Kylie, Billie Eilish)
+  const verified = fetched.filter((v) => hasKContentMarker(v.title || '', v.description || '', v.hashtag || '', v.channel || ''))
+  const droppedBy2nd = fetched.length - verified.length
+  // 최종 topN
+  const videos = verified.slice(0, topN)
+
+  console.log(`  [YouTube] 총 ${videos.length}개 영상 (댓글 합계 ${videos.reduce((s, v) => s + v.comments.length, 0)}개) · 2차 K-marker로 ${droppedBy2nd}건 제거`)
   return { videos, searchedHashtags: hashtags }
 }

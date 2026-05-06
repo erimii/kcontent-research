@@ -13,7 +13,7 @@
   - Reddit Atom RSS (인증 불필요)
   - MyDramaList — Playwright 헤드리스 (Cloudflare 우회)
   - Google Trends — Playwright trending 페이지 스크래핑 (7개 카테고리·시간·geo URL 병합)
-  - YouTube — `youtubei.js` Innertube (무인증, 영상 30개 + 댓글 ~900개)
+  - YouTube — `youtubei.js` Innertube (무인증, 14개 해시태그 → 영상 30개 + 댓글 ~900개, 2단계 K-content 마커 필터)
 - **프론트**: Vanilla JS SPA (`public/static/app.js`) — 더보기/접기 토글로 스크롤 길이 절반 단축
 
 ---
@@ -164,20 +164,35 @@ TOP5 포스트마다:
 
 ## YouTube SNS 버즈 통합
 
-**별도 파이프라인** ([src/crawlers/youtube.ts](src/crawlers/youtube.ts) + [src/pipeline/youtubeAnalysis.ts](src/pipeline/youtubeAnalysis.ts))
+**별도 파이프라인** ([src/crawlers/youtube.ts](src/crawlers/youtube.ts) + [src/pipeline/youtubeAnalysis.ts](src/pipeline/youtubeAnalysis.ts) + [src/pipeline/translateYoutube.ts](src/pipeline/translateYoutube.ts))
 
-- **수집**: `youtubei.js` Innertube로 10개 해시태그 (#kdrama #koreandrama #netflixkdrama #kdramareview #kdramarecap #kdramareaction #koreanactor #kdramaclip #kdramashorts #kpop) 검색 → 영상 30개 + 각 댓글 30개 (~10초)
+- **수집**: `youtubei.js` Innertube로 **14개 해시태그** 검색 → 영상 30개 + 각 댓글 30개 (~10초)
+  - K-드라마: `#kdrama` `#koreandrama` `#netflixkdrama` `#kdramareview` `#kdramarecap` `#kdramareaction` `#koreanactor` `#kdramaclip` `#kdramashorts`
+  - K-버라이어티: `#kvariety` `#kvarietyshow` `#koreanvariety` `#runningman` `#knowingbros`
 - **시간 필터**: `upload_date: 'month'` — 최근 1개월 내 업로드 영상만 (트렌드성 유지)
-- **채널 타입 자동 분류** (3단계, **community는 결과에서 제외**):
-  - **official** (✓ 공식): Netflix Korea·Asia·K-Content, The Swoon, Viki, KOCOWA, Disney+, HBO, tvN, JTBC, KBS, SBS, MBC, ENA, OCN, CJ ENM, Studio Dragon, HYBE, SM, JYP, YG, Sony Pictures 등
-  - **influencer** (🎤 K-드라마 리뷰어): The Daebak Show, DKDKTV, Soompi, Marli Ray, Avenue X, Cinema Jenny, Kdrama English Recap 등 + `kdrama review|recap|reaction` 정규식
-  - **community** (일반 사용자): 위 둘에 안 잡히면 자동 제외
+- **채널 타입 자동 분류** (3단계):
+  - **official** (✓ 공식): Netflix Korea·K-Content, The Swoon, Viki, KOCOWA, Disney+, tvN, JTBC, KBS, SBS, MBC, ENA, OCN, Studio Dragon, HYBE, SM, JYP, YG 등
+  - **influencer** (🎤 K-드라마 리뷰어): The Daebak Show, DKDKTV, Soompi, Marli Ray, Avenue X, Cinema Jenny 등 + `kdrama review|recap|reaction` 정규식
+  - **community** (일반 사용자): 영상 제목이 `reaction|review|recap|breakdown|...` 패턴이면 통과 (외국 개인 유튜버 커버), 아니면 제외
+- **2단계 K-content 마커 필터** (북미 채널 우선 정책):
+  - **1차 (pre-detail, cheap)**: title + 채널명 + 해시태그만 검사. 공식 채널은 면제 (description 없는 단계라 부정확)
+  - **2차 (post-detail, thorough)**: description까지 포함하여 모든 영상 재검사 (공식 포함). 비-K 셀럽이 K-쇼 게스트로 출연한 영상(Billie Eilish on Knowing Bros) / Netflix 본채널이 업로드한 비-K 다큐(Kylie Minogue) 차단
+  - **즉시 탈락**: `cdrama|chinese drama|jdrama|japanese drama|thai drama` 명시 / Devanagari·Cyrillic·Arabic·Thai 스크립트 / 로마자 힌디어(`bhai`/`yaar`) / 필리핀어 마커
+  - **공식 채널이라도 비-NA 지역 분점 제외**: 채널명에 `philippines/india/indonesia/latino/brasil/türkiye` 등 명시 시 탈락 (Disney+ Philippines, KBS WORLD Latino 등 차단)
+  - 오버샘플 50% (topN 30 → 45개 fetch) 후 2차 필터로 안전마진 확보
+- **commentCount 캡처**: YouTube 측 총 댓글 수 (크롤한 30개가 아닌 전체)를 영상별 메타에 저장 → engagement score 계산용
+- **인기 콘텐츠 TOP 정렬 — Engagement score (log scale 1·2·5 가중)**:
+  ```
+  score = log10(views+1)·1 + log10(likes+1)·2 + log10(commentCount+1)·5
+  ```
+  댓글 비중이 가장 큼 — "사람들이 적극 반응한 영상" 의도
+- **🏆 작품별 화제도 (contentGroups)**: 영상을 작품 단위로 묶어 상위 6개 노출
+  - 작품 식별 3단계: ① `KNOWN_DRAMAS_STATIC` 사전 매칭 (긴 작품명 우선) → ② 트레일러 제목 패턴 (`X | Official Trailer/Teaser/Episode/Recap/Review/Reaction`) → ③ K-쇼 화이트리스트 (`Running Man`/`Knowing Bros` 등)
+  - 작품 단위 합산: `videoCount` / `totalViews` / `totalLikes` / `totalComments` / 대표 영상 + 좋아요 TOP 2 댓글
+  - 동일 engagement score (합산값 기준)으로 정렬
+- **댓글 한국어 번역** ([src/pipeline/translateYoutube.ts](src/pipeline/translateYoutube.ts)): 작품별 카드의 댓글을 Groq AI로 번역 → `textKo` 필드. 화면에선 한글 우선, hover 시 영문 원본
 - **콘텐츠 유형 분류**: scene (MV/명장면/트레일러 흡수) / meme / edit / reaction / review / actor / other
-- **댓글 반응 패턴**: 10개 카테고리 (감정 폭발 OMG / 눈물 / 이모지 / 몰입·중독 / 정보 요청 / 공감 relatable / 최고 평가 masterpiece / 비판 / 재시청 / 추천)
-- **자연어 인사이트 2종**:
-  - 버즈 흐름: "리뷰·추천(N건)으로 토론 → 명장면·반응(M건)으로 밈화 직전 → 밈·편집(K건)으로 확산" 자동 추적
-  - 팬덤 → 외부 확산: 공식 vs 인플루언서 비중 4단계 분기 (공식 ≥70% → 마케팅 주도형 / 균형 → 공식+리뷰어 증폭 / 인플루언서 ≥50% → 큐레이션 매개 / 그 외 → 분산)
-- **캐시**: `mdl_cache` 테이블 (key `youtube_buzz_v1`), TTL **3시간**
+- **캐시**: `mdl_cache` 테이블 (key `youtube_buzz_v3`), TTL **3시간**. v3 = contentGroups + commentCount + 한국어 번역 포함
 
 ---
 
@@ -211,7 +226,7 @@ TOP5 포스트마다:
 
 목적 정합성 평가를 거쳐 **7개 카드**로 압축. 헤더는 핵심 메타데이터(K-콘텐츠 비율·소스 한 줄) inline 표시:
 
-1. **▶️ SNS 버즈 분석 (YouTube)** — 영상 30개 + 댓글 ~900개 / 채널 타입(공식·인플루언서) / 콘텐츠 유형 / 댓글 반응 패턴 / 버즈 흐름·팬덤 확산 자연어 인사이트
+1. **▶️ SNS 버즈 분석 (YouTube)** — 영상 30개 + 댓글 ~900개. **🏆 작품별 화제도 6개** (작품 단위 집계 + 좋아요 TOP 2 한국어 번역 댓글) → **인기 콘텐츠 TOP 30** (engagement score 1·2·5 정렬, 썸네일·views·likes·comments) → 채널 타입·콘텐츠 유형 분포
 2. **🧠 한국어 핵심 인사이트** — 4개 카테고리 자연어 (트렌드 요약 / 팬 반응 / 소비 패턴 / 확장 흐름)
 3. **🔥 콘텐츠 트렌드** — 작품·배우·키워드 빈도 (3-칼럼)
 4. **📺 MDL Top Airing K-드라마 TOP 5** — 포스터/평점/평점 분포/댓글 감정/리뷰 쟁점 클러스터/대표 리뷰 + **🆕 시청자 즉각 반응** (코멘트 별도 분석 + 좋아요 TOP 5 한국어 번역). **⚠ 평가 분열** 배지 자동
@@ -312,7 +327,7 @@ src/
 │   ├── reddit.ts          ← RSS 기반 Reddit 수집 (4개 서브레딧)
 │   ├── mdl.ts             ← Playwright 기반 MyDramaList 크롤러
 │   ├── gtrends.ts         ← Google Trends Playwright 7페이지 병합
-│   └── youtube.ts         ← youtubei.js 6개 해시태그 검색 + 댓글
+│   └── youtube.ts         ← youtubei.js 14개 해시태그 검색 + 2단계 K-content 마커 필터 + 댓글
 ├── data/
 │   ├── usEvents.ts             ← 미국 연간 이벤트 캘린더 50개 + K-콘텐츠 시사점 17개
 │   ├── known-dramas-static.ts  ← 한국 드라마·영화 ~150개 + 한국 배우/연기자 ~80명 (정적 사전, commit됨)
@@ -325,7 +340,8 @@ src/
 │   ├── insight.ts         ← Stage 6 한국어 인사이트 + legacy English
 │   ├── mdlAnalysis.ts     ← MDL 드라마 단위 분석 + 평가 분열 감지
 │   ├── gtrendsAnalysis.ts ← GTrends 카테고리 분류 + K비교 인사이트
-│   ├── youtubeAnalysis.ts ← YouTube 콘텐츠 유형·반응 패턴·확산 분석
+│   ├── youtubeAnalysis.ts ← YouTube engagement score 정렬 + 작품별 화제도 + 댓글 분석
+│   ├── translateYoutube.ts← YouTube 댓글 Groq AI 한국어 번역 (작품별 카드 표시용)
 │   ├── normalizer.ts      ← 정규화·드라마 제목 추출
 │   ├── clusterer.ts       ← Jaccard/Levenshtein 타이틀 클러스터링
 │   ├── scorer.ts          ← 종합 점수 산출
@@ -353,7 +369,7 @@ data/k-content.db
                       + 🏅 명작 랭킹 50개 (key='mdl_popular_ranking_v1', TTL 30일)
                       + 🏅 단일 작품 lazy 분석 (key='mdl_drama_<slug>_v1', TTL 30일, 영구 누적)
                       + GTrends 북미 (key='us_daily_v1', TTL 1h)
-                      + YouTube SNS 버즈 (key='youtube_buzz_v1', TTL 3h)
+                      + YouTube SNS 버즈 (key='youtube_buzz_v3', TTL 3h, contentGroups + 한국어 번역 포함)
 └── translation_cache - 영문 → 한국어 번역 (Groq, 텍스트 해시 키, 영구)
 ```
 

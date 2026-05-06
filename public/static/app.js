@@ -654,6 +654,11 @@ function fmtViews(n) {
   return String(n)
 }
 
+function ytTruncate(t, n) {
+  t = (t || '').replace(/\s+/g, ' ').trim()
+  return t.length <= n ? t : t.slice(0, n - 1).trim() + '…'
+}
+
 function renderYoutubeCard(s) {
   if (!s || s.totalVideos === 0) return ''
   const fetchedDate = new Date(s.fetchedAt)
@@ -675,6 +680,42 @@ function renderYoutubeCard(s) {
         </div>
       </div>
       <div class="card-body" style="padding:0">
+
+        <!-- 🏆 작품별 화제도 -->
+        ${(s.contentGroups || []).length > 0 ? `
+        <div style="padding:16px 18px;border-bottom:1px solid rgba(255,255,255,0.05)">
+          <div style="font-size:12px;color:#fbbf24;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">
+            🏆 작품별 화제도
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:10px">
+            ${(s.contentGroups || []).map(g => `
+              <a href="https://www.youtube.com/watch?v=${escHtml(g.topVideoId)}" target="_blank" rel="noopener noreferrer"
+                 style="display:flex;flex-direction:column;gap:8px;padding:10px 12px;background:rgba(251,191,36,0.05);border-radius:8px;border-left:3px solid #fbbf24;text-decoration:none;color:inherit;transition:background 0.15s"
+                 onmouseover="this.style.background='rgba(251,191,36,0.10)'"
+                 onmouseout="this.style.background='rgba(251,191,36,0.05)'">
+                <div style="display:flex;gap:10px;align-items:flex-start">
+                  ${g.topVideoThumbnail ? `<img src="${escHtml(g.topVideoThumbnail)}" style="width:80px;height:45px;object-fit:cover;border-radius:3px;flex-shrink:0">` : ''}
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:700;line-height:1.3;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${escHtml(g.title)}</div>
+                    <div style="font-size:10px;color:var(--text-muted);margin-top:3px">
+                      영상 ${g.videoCount} · 👁 ${fmtViews(g.totalViews)} · 👍 ${fmtViews(g.totalLikes)} · 💬 ${fmtViews(g.totalComments)}
+                    </div>
+                  </div>
+                </div>
+                ${(g.topComments || []).length > 0 ? `
+                  <div style="display:flex;flex-direction:column;gap:4px;margin-top:2px">
+                    ${(g.topComments || []).slice(0, 2).map(c => {
+                      const display = c.textKo || c.text
+                      const tooltip = c.textKo ? c.text : c.text
+                      return `
+                      <div style="font-size:11.5px;line-height:1.5;color:var(--text-primary);padding:6px 8px;background:rgba(255,255,255,0.025);border-radius:4px" title="${escHtml(tooltip)}">
+                        💬 "${escHtml(ytTruncate(display, 100))}" <span style="color:var(--text-muted);font-size:10px">— 👍 ${fmtViews(c.likes)}</span>
+                      </div>`
+                    }).join('')}
+                  </div>` : ''}
+              </a>`).join('')}
+          </div>
+        </div>` : ''}
 
         <!-- 📊 근거 데이터 (펼친 상태로 직접 노출) -->
         <div style="padding:12px 18px">
