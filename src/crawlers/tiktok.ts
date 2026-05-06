@@ -105,6 +105,8 @@ function hasKContentMarker(caption: string, channelMeta: string, hashtags: strin
 
 // ── community 채널 caption 통과 (외국 개인 K-팬 커버) ──────
 const REACTION_REVIEW_CAPTION = /\b(reaction|reacting|first time watching|review|recap|breakdown|explained|edit|fmv|amv|favorite)\b/i
+// K-content 해시태그 (caption에 명시되어 있으면 community도 통과)
+const K_HASHTAG_RE = /^#?k(drama|orean|netflix|content|wave|hallyu|variety)/i
 
 function extractHashtags(caption: string): string[] {
   return (caption.match(/#[\w가-힣]+/g) || []).map((s) => s.toLowerCase())
@@ -208,7 +210,12 @@ export async function crawlTiktokBuzz(
     const a = v.author || {}
     const ct = classifyChannelType(a.nickname || '', a.uniqueId || '', a.signature || '')
     if (ct === 'official' || ct === 'creator') return true
-    return REACTION_REVIEW_CAPTION.test(v.desc || '')
+    // community 채널 통과 조건 (둘 중 하나):
+    // 1) caption이 reaction/review/recap/edit 등 명시 키워드 포함
+    // 2) caption 해시태그에 #kdrama / #koreandrama / #kvariety 등 K-content 태그 포함
+    if (REACTION_REVIEW_CAPTION.test(v.desc || '')) return true
+    const hashtags = extractHashtags(v.desc || '')
+    return hashtags.some((h) => K_HASHTAG_RE.test(h))
   })
 
   const filtered1 = channelFiltered.filter((v) => {
