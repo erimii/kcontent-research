@@ -73,6 +73,8 @@ const state = {
   gtrendsLoading: false,
   youtubeSummary: null,
   youtubeLoading: false,
+  tiktokSummary: null,
+  tiktokLoading: false,
 }
 
 // ============================================================
@@ -765,6 +767,197 @@ function renderYoutubeCard(s) {
     </div>`
 }
 
+// ============================================================
+// TikTok SNS 버즈 카드
+// ============================================================
+async function loadTiktokSummary(force = false) {
+  const slot = document.getElementById('tiktok-section')
+  if (!slot) return
+  if (state.tiktokLoading) return
+  state.tiktokLoading = true
+
+  if (!force) {
+    try {
+      const r = await fetch('/api/tiktok').then(x => x.json())
+      if (r.ok && r.summary) {
+        state.tiktokSummary = r.summary
+        slot.innerHTML = renderTiktokCard(r.summary)
+        state.tiktokLoading = false
+        return
+      }
+    } catch {}
+  }
+
+  slot.innerHTML = renderTiktokPlaceholder('loading')
+  try {
+    const r = await fetch('/api/tiktok/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ force }),
+    }).then(x => x.json())
+    if (r.ok && r.summary) {
+      state.tiktokSummary = r.summary
+      slot.innerHTML = renderTiktokCard(r.summary)
+    } else {
+      slot.innerHTML = renderTiktokPlaceholder('error', r.error)
+    }
+  } catch (e) {
+    slot.innerHTML = renderTiktokPlaceholder('error', String(e))
+  }
+  state.tiktokLoading = false
+}
+
+function renderTiktokPlaceholder(mode, errMsg) {
+  if (mode === 'loading') {
+    return `
+      <div class="card">
+        <div class="card-header"><div class="card-title">🎵 SNS 버즈 분석 (TikTok)</div></div>
+        <div class="card-body" style="padding:30px;text-align:center;color:var(--text-muted)">
+          <div class="spinner" style="margin:0 auto 12px"></div>
+          TikTok 키워드 검색 + 영상 30개 + 댓글 수집 중... (~30초~2분)
+        </div>
+      </div>`
+  }
+  if (mode === 'error') {
+    return `
+      <div class="card">
+        <div class="card-header"><div class="card-title">🎵 SNS 버즈 분석 (TikTok)</div></div>
+        <div class="card-body" style="padding:18px;color:var(--text-muted);font-size:12px">
+          크롤링 실패. <button class="btn btn-outline" style="padding:3px 10px;font-size:11px;margin-left:6px" onclick="loadTiktokSummary(true)">재시도</button>
+          ${errMsg ? `<div style="margin-top:8px;font-family:monospace;font-size:10px;opacity:0.6">${escHtml(String(errMsg).slice(0, 200))}</div>` : ''}
+          <div style="margin-top:8px;font-size:11px;line-height:1.5">TikTok video search는 IP 단위 rate limit이 자주 발생합니다. 30-60분 후 재시도 또는 쿠키 재추출.</div>
+        </div>
+      </div>`
+  }
+  return ''
+}
+
+const TT_CHANNEL_COLOR = {
+  official: '#10b981', creator: '#f59e0b', community: '#6b7280',
+}
+const TT_CHANNEL_BADGE = {
+  official: '<span style="display:inline-block;padding:1px 6px;background:rgba(16,185,129,0.15);color:#10b981;font-size:9px;font-weight:700;border-radius:8px;margin-left:4px">✓ 공식</span>',
+  creator: '<span style="display:inline-block;padding:1px 6px;background:rgba(245,158,11,0.15);color:#f59e0b;font-size:9px;font-weight:700;border-radius:8px;margin-left:4px">🎤 크리에이터</span>',
+  community: '',
+}
+
+function renderTiktokCard(s) {
+  if (!s || s.totalVideos === 0) return ''
+  const fetchedDate = new Date(s.fetchedAt)
+  const ago = Math.round((Date.now() - fetchedDate.getTime()) / 60000)
+  const cacheLabel = s.cached
+    ? `<span style="font-size:10px;color:var(--text-muted)">캐시 · ${ago}분 전</span>`
+    : `<span style="font-size:10px;color:#10b981">방금 가져옴</span>`
+
+  return `
+    <div class="card" style="border-left:3px solid #ec4899">
+      <div class="card-header">
+        <div class="card-title">🎵 SNS 버즈 분석 (TikTok)</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:10px;color:var(--text-muted)">${s.totalVideos}개 영상 · 댓글 ${s.totalComments}개</span>
+          ${cacheLabel}
+          <button class="btn btn-outline" style="padding:3px 10px;font-size:11px" onclick="loadTiktokSummary(true)">
+            <i class="fas fa-sync-alt"></i> 새로고침
+          </button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0">
+
+        <!-- 🏆 작품별 화제도 -->
+        ${(s.contentGroups || []).length > 0 ? `
+        <div style="padding:16px 18px;border-bottom:1px solid rgba(255,255,255,0.05)">
+          <div style="font-size:12px;color:#fbbf24;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">
+            🏆 작품별 화제도
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:10px">
+            ${(s.contentGroups || []).map(g => `
+              <a href="${escHtml(g.topVideoUrl)}" target="_blank" rel="noopener noreferrer"
+                 style="display:flex;flex-direction:column;gap:8px;padding:10px 12px;background:rgba(251,191,36,0.05);border-radius:8px;border-left:3px solid #fbbf24;text-decoration:none;color:inherit;transition:background 0.15s"
+                 onmouseover="this.style.background='rgba(251,191,36,0.10)'"
+                 onmouseout="this.style.background='rgba(251,191,36,0.05)'">
+                <div style="display:flex;gap:10px;align-items:flex-start">
+                  ${g.topVideoCover ? `<img src="${escHtml(g.topVideoCover)}" style="width:60px;height:75px;object-fit:cover;border-radius:3px;flex-shrink:0">` : ''}
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:700;line-height:1.3;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${escHtml(g.title)}</div>
+                    <div style="font-size:10px;color:var(--text-muted);margin-top:3px;line-height:1.4">
+                      영상 ${g.videoCount} · 👁 ${fmtViews(g.totalViews)} · 👍 ${fmtViews(g.totalLikes)} · 💬 ${fmtViews(g.totalComments)} · ↗ ${fmtViews(g.totalShares)}
+                    </div>
+                  </div>
+                </div>
+                ${(g.topComments || []).length > 0 ? `
+                  <div style="display:flex;flex-direction:column;gap:4px;margin-top:2px">
+                    ${(g.topComments || []).slice(0, 2).map(c => {
+                      const display = c.textKo || c.text
+                      return `
+                      <div style="font-size:11.5px;line-height:1.5;color:var(--text-primary);padding:6px 8px;background:rgba(255,255,255,0.025);border-radius:4px" title="${escHtml(c.text)}">
+                        💬 "${escHtml(ytTruncate(display, 100))}" <span style="color:var(--text-muted);font-size:10px">— 👍 ${fmtViews(c.likes)}</span>
+                      </div>`
+                    }).join('')}
+                  </div>` : ''}
+              </a>`).join('')}
+          </div>
+        </div>` : ''}
+
+        <!-- 🎵 트렌딩 사운드 -->
+        ${(s.trendingSounds || []).length > 0 ? `
+        <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.05);background:rgba(236,72,153,0.04)">
+          <div style="font-size:12px;color:#ec4899;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">
+            🎵 트렌딩 사운드 <span style="font-weight:400;color:var(--text-muted);text-transform:none">(데이터셋 내 재사용)</span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            ${(s.trendingSounds || []).map(snd => `
+              <a href="${escHtml(snd.sampleVideoUrl)}" target="_blank" rel="noopener noreferrer"
+                 title="${escHtml(snd.title)} by ${escHtml(snd.authorName)} · ${snd.videoCount}회 재사용 · ${fmtViews(snd.totalViews)} 누적 조회"
+                 style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:rgba(236,72,153,0.10);border:1px solid rgba(236,72,153,0.25);border-radius:14px;font-size:12px;color:#fbcfe8;text-decoration:none">
+                <span style="font-weight:600">${escHtml(ytTruncate(snd.title, 28))}</span>
+                <span style="font-size:10px;color:var(--text-muted)">· ${snd.videoCount}회</span>
+              </a>`).join('')}
+          </div>
+        </div>` : ''}
+
+        <!-- 👤 K-드라마 크리에이터 랭킹 -->
+        ${(s.topCreators || []).length > 0 ? `
+        <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.05)">
+          <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:8px">
+            👤 크리에이터 랭킹
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px">
+            ${(s.topCreators || []).slice(0, 8).map(c => `
+              <a href="https://www.tiktok.com/@${escHtml(c.author.uniqueId)}" target="_blank" rel="noopener noreferrer"
+                 style="display:flex;gap:8px;align-items:center;padding:6px 8px;background:rgba(255,255,255,0.025);border-radius:5px;text-decoration:none;color:inherit;transition:background 0.15s"
+                 onmouseover="this.style.background='rgba(255,255,255,0.05)'"
+                 onmouseout="this.style.background='rgba(255,255,255,0.025)'">
+                ${c.author.avatar ? `<img src="${escHtml(c.author.avatar)}" style="width:32px;height:32px;border-radius:50%;flex-shrink:0">` : '<div style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,0.1);flex-shrink:0"></div>'}
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:12px;font-weight:600;line-height:1.3;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(c.author.nickname || c.author.uniqueId)}${c.author.verified ? ' ✓' : ''}${TT_CHANNEL_BADGE[c.author.channelType] || ''}</div>
+                  <div style="font-size:10px;color:var(--text-muted)">@${escHtml(c.author.uniqueId)} · ${c.videoCount}영상 · ${fmtViews(c.totalViews)}</div>
+                </div>
+              </a>`).join('')}
+          </div>
+        </div>` : ''}
+
+        <!-- 인기 클립 TOP -->
+        <div style="padding:12px 18px">
+          <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:6px">인기 클립 TOP</div>
+          ${collapsibleSection('tt-top', s.topVideos, 3, (v) => `
+            <a href="${escHtml(v.url)}" target="_blank" rel="noopener noreferrer"
+               style="display:flex;gap:10px;padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:4px;border-left:2px solid ${TT_CHANNEL_COLOR[v.channelType] || '#6b7280'};margin-bottom:5px;text-decoration:none;color:inherit">
+              ${v.cover ? `<img src="${escHtml(v.cover)}" style="width:60px;height:80px;object-fit:cover;border-radius:3px;flex-shrink:0">` : ''}
+              <div style="flex:1;min-width:0">
+                <div style="font-size:12px;font-weight:600;line-height:1.4;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${escHtml(v.description)}${TT_CHANNEL_BADGE[v.channelType] || ''}</div>
+                <div style="font-size:10px;color:var(--text-muted);margin-top:3px">
+                  @${escHtml(v.author.uniqueId)}
+                  · 👁 ${fmtViews(v.views)} · 👍 ${fmtViews(v.likes)} · 💬 ${fmtViews(v.commentCount)} · ↗ ${fmtViews(v.shares)}
+                  ${v.sound?.title ? ` · 🎵 ${escHtml(ytTruncate(v.sound.title, 30))}` : ''}
+                </div>
+              </div>
+            </a>`)}
+        </div>
+
+      </div>
+    </div>`
+}
+
 // 통합 카드만 재렌더 (MDL 로드 후 nativeTitle 자동 매핑 반영)
 function rerenderContentTrend() {
   if (state.page !== 'dashboard' || !state.currentReport) return
@@ -1370,6 +1563,7 @@ function renderDashboard() {
       ${renderDeepAnalysis(r)}
       <div id="mdl-section"></div>
       <div id="youtube-section"></div>
+      <div id="tiktok-section"></div>
       <div id="gtrends-section"></div>
 
     </div>`
@@ -1731,13 +1925,15 @@ function renderYoutubeRankingTable(s) {
 // Page: Crawl
 // ============================================================
 function renderCrawl() {
-  if (!window._selectedSources) window._selectedSources = { reddit: true, mdl: true, gtrends: true, youtube: true }
+  if (!window._selectedSources) window._selectedSources = { reddit: true, mdl: true, gtrends: true, youtube: true, tiktok: true }
   const sel = window._selectedSources
   if (sel.gtrends === undefined) sel.gtrends = true
   if (sel.youtube === undefined) sel.youtube = true
+  if (sel.tiktok === undefined) sel.tiktok = true
   const mdlForce = window._mdlForce || false
   const gtrendsForce = window._gtrendsForce || false
   const youtubeForce = window._youtubeForce || false
+  const tiktokForce = window._tiktokForce || false
 
   // 캐시 hint helper
   const cacheHintFor = (summary, ttlLabel) => {
@@ -1751,6 +1947,7 @@ function renderCrawl() {
   const mdlCacheHint = cacheHintFor(state.mdlSummary, '캐시 사용')
   const gtrendsCacheHint = cacheHintFor(state.gtrendsSummary, '캐시 사용')
   const youtubeCacheHint = cacheHintFor(state.youtubeSummary, '캐시 사용')
+  const tiktokCacheHint = cacheHintFor(state.tiktokSummary, '캐시 사용')
 
   const sourceCard = (key, color, icon, name, desc, extra) => `
     <label class="card" style="padding:14px;border-color:${sel[key] ? color + '55' : 'rgba(255,255,255,0.06)'};cursor:pointer;opacity:${sel[key] ? '1' : '0.5'};transition:all 0.15s">
@@ -1785,7 +1982,14 @@ function renderCrawl() {
       캐시 무시하고 강제 새로고침
     </label>` : ''
 
-  const anySelected = sel.reddit || sel.mdl || sel.gtrends || sel.youtube
+  const tiktokExtra = sel.tiktok ? `
+    <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted);cursor:pointer">
+      <input type="checkbox" ${tiktokForce ? 'checked' : ''} onchange="toggleTiktokForce()"
+             style="width:13px;height:13px;cursor:pointer;accent-color:#ec4899">
+      캐시 무시하고 강제 새로고침
+    </label>` : ''
+
+  const anySelected = sel.reddit || sel.mdl || sel.gtrends || sel.youtube || sel.tiktok
 
   return `
     <div class="page-header">
@@ -1820,8 +2024,13 @@ function renderCrawl() {
             )}
             ${sourceCard(
               'youtube', '#ef4444', 'fab fa-youtube', 'YouTube SNS 버즈',
-              `해시태그 6개 + 영상 30개 + 댓글 ~900개 · ${youtubeCacheHint}`,
+              `해시태그 14개 + 영상 30개 + 댓글 ~900개 · ${youtubeCacheHint}`,
               youtubeExtra
+            )}
+            ${sourceCard(
+              'tiktok', '#ec4899', 'fab fa-tiktok', 'TikTok SNS 버즈',
+              `키워드 5개 + 영상 30개 + 댓글 ~450개 · ${tiktokCacheHint}`,
+              tiktokExtra
             )}
           </div>
 
@@ -2079,6 +2288,7 @@ function navigateTo(page) {
     setTimeout(() => loadMdlSummary(false), 100)
     setTimeout(() => loadGTrendsSummary(false), 100)
     setTimeout(() => loadYoutubeSummary(false), 100)
+    setTimeout(() => loadTiktokSummary(false), 150)
   }
 }
 
@@ -2159,6 +2369,11 @@ function toggleYoutubeForce() {
   if (state.page === 'crawl') renderPage()
 }
 
+function toggleTiktokForce() {
+  window._tiktokForce = !window._tiktokForce
+  if (state.page === 'crawl') renderPage()
+}
+
 // ============================================================
 // Data Actions
 // ============================================================
@@ -2191,12 +2406,13 @@ async function runDemo(type = 'daily') {
 async function startCrawl() {
   if (state.crawling) return
   const type = window._crawlType || 'daily'
-  const sel = window._selectedSources || { reddit: true, mdl: true, gtrends: true, youtube: true }
+  const sel = window._selectedSources || { reddit: true, mdl: true, gtrends: true, youtube: true, tiktok: true }
   const mdlForce = !!window._mdlForce
   const gtrendsForce = !!window._gtrendsForce
   const youtubeForce = !!window._youtubeForce
+  const tiktokForce = !!window._tiktokForce
 
-  if (!sel.reddit && !sel.mdl && !sel.gtrends && !sel.youtube) {
+  if (!sel.reddit && !sel.mdl && !sel.gtrends && !sel.youtube && !sel.tiktok) {
     toast('최소 한 개 소스를 선택해주세요', 'error')
     return
   }
@@ -2224,6 +2440,7 @@ async function startCrawl() {
   if (sel.mdl) labels.push('MDL' + (mdlForce ? ' (강제)' : ''))
   if (sel.gtrends) labels.push('GTrends' + (gtrendsForce ? ' (강제)' : ''))
   if (sel.youtube) labels.push('YouTube' + (youtubeForce ? ' (강제)' : ''))
+  if (sel.tiktok) labels.push('TikTok' + (tiktokForce ? ' (강제)' : ''))
   addLog(`크롤링 시작: ${labels.join(' + ')} (${type})`, 'info')
 
   // 두 소스를 병렬 처리
@@ -2332,6 +2549,35 @@ async function startCrawl() {
       } catch (e) {
         addLog(`[YouTube] ❌ 연결 오류: ${e.message}`, 'error')
         return { source: 'youtube', ok: false, error: e.message }
+      }
+    })())
+  }
+
+  if (sel.tiktok) {
+    tasks.push((async () => {
+      addLog(`[TikTok] 시작${tiktokForce ? ' (캐시 무시)' : ''}...`, 'info')
+      try {
+        const res = await fetch('/api/tiktok/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ force: tiktokForce }),
+        }).then(x => x.json())
+        if (res.ok && res.summary) {
+          state.tiktokSummary = res.summary
+          const v = res.summary.totalVideos || 0
+          const c = res.summary.totalComments || 0
+          if (res.cached) {
+            addLog(`[TikTok] ✅ 캐시 사용 — 영상 ${v}개, 댓글 ${c}개`, 'success')
+          } else {
+            addLog(`[TikTok] ✅ 새 크롤링 완료 — 영상 ${v}개, 댓글 ${c}개`, 'success')
+          }
+          return { source: 'tiktok', ok: true }
+        }
+        addLog(`[TikTok] ❌ ${res.error || '오류'}`, 'error')
+        return { source: 'tiktok', ok: false, error: res.error }
+      } catch (e) {
+        addLog(`[TikTok] ❌ 연결 오류: ${e.message}`, 'error')
+        return { source: 'tiktok', ok: false, error: e.message }
       }
     })())
   }

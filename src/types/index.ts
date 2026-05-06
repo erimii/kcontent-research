@@ -500,3 +500,114 @@ export interface YoutubeSummary {
   // 5. 가장 공감 받은 댓글 TOP 10 (좋아요순)
   topComments: YoutubeTopComment[]
 }
+
+// ============================================================
+// TikTok SNS 버즈
+// ============================================================
+
+export type TikTokChannelType = 'official' | 'creator' | 'community'
+
+export interface TikTokAuthor {
+  id: string
+  uniqueId: string                // @username
+  nickname: string
+  avatar?: string
+  verified?: boolean
+  followerCount?: number
+  signature?: string              // 프로필 소개
+}
+
+export interface TikTokSound {
+  id: string
+  title: string
+  authorName: string
+  duration?: number
+  original?: boolean
+  cover?: string
+}
+
+export interface TikTokComment {
+  text: string
+  textKo?: string
+  author: string
+  likes: number
+}
+
+export interface TikTokVideo {
+  id: string
+  description: string
+  url: string
+  cover?: string
+  duration: number                // seconds
+  views: number
+  likes: number
+  shares: number
+  commentCount: number
+  saved: number                   // collectCount
+  publishedAt: string             // ISO
+  author: TikTokAuthor
+  sound?: TikTokSound
+  comments: TikTokComment[]
+  hashtags: string[]
+  channelType: TikTokChannelType
+}
+
+export interface TikTokTopComment {
+  text: string
+  textKo?: string
+  author: string
+  likes: number
+  videoId: string
+  videoUrl: string
+  videoDescription: string        // 어느 영상의 댓글인지 컨텍스트
+}
+
+export interface TikTokContentGroup {
+  title: string
+  videoCount: number
+  totalViews: number
+  totalLikes: number
+  totalShares: number
+  totalComments: number
+  topVideoId: string
+  topVideoUrl: string
+  topVideoCover?: string
+  topVideoDescription: string
+  topComments: TikTokTopComment[]
+  matchSource: 'known' | 'caption-pattern' | 'show-name'
+}
+
+export interface TikTokTrendingSound {
+  id: string
+  title: string
+  authorName: string
+  cover?: string
+  videoCount: number              // 우리 데이터셋 내 사용 영상 수
+  totalViews: number
+  sampleVideoId: string
+  sampleVideoUrl: string
+  sampleVideoDescription: string
+}
+
+export interface TikTokTopCreator {
+  author: TikTokAuthor
+  videoCount: number
+  totalViews: number
+  totalLikes: number
+  topVideoId: string
+  topVideoUrl: string
+  topVideoDescription: string
+}
+
+export interface TikTokSummary {
+  fetchedAt: string
+  cached: boolean
+  expiresAt: string
+  totalVideos: number
+  totalComments: number
+  searchedKeywords: string[]
+  topVideos: TikTokVideo[]                // engagement 정렬
+  contentGroups: TikTokContentGroup[]     // 작품별 화제도 6개
+  trendingSounds: TikTokTrendingSound[]   // 사운드 재사용 TOP 8
+  topCreators: TikTokTopCreator[]         // 크리에이터 랭킹 TOP 8
+}

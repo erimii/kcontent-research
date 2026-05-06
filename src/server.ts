@@ -1119,6 +1119,69 @@ app.post('/api/youtube/refresh', async (req, res) => {
 })
 
 // ============================================================
+// TikTok SNS 버즈 분석
+// ============================================================
+const TT_CACHE_KEY = 'tiktok_buzz_v1'
+const TT_CACHE_TTL_SEC = 3 * 3600  // 3시간
+
+app.get('/api/tiktok', (_req, res) => {
+  try {
+    const cached = getMdlCache<any>(TT_CACHE_KEY)
+    if (!cached) return res.json({ ok: true, summary: null, cached: false })
+    res.json({
+      ok: true,
+      summary: { ...cached.data, cached: true, fetchedAt: cached.fetchedAt, expiresAt: cached.expiresAt },
+      cached: true,
+    })
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+app.post('/api/tiktok/refresh', async (req, res) => {
+  try {
+    const force = req.body?.force === true
+    if (!force) {
+      const cached = getMdlCache<any>(TT_CACHE_KEY)
+      if (cached) {
+        return res.json({
+          ok: true,
+          summary: { ...cached.data, cached: true, fetchedAt: cached.fetchedAt, expiresAt: cached.expiresAt },
+          cached: true,
+        })
+      }
+    }
+
+    console.log('[TikTok] 새 크롤링 시작...')
+    const t0 = Date.now()
+    const { buildTiktokSummary } = await import('./pipeline/tiktokAnalysis.js')
+    const summary = await buildTiktokSummary({ topN: 30, commentsPerVideo: 20 })
+    saveCrawlLog('tiktok', summary.totalVideos, summary.totalVideos > 0 ? 'success' : 'failed')
+    if (summary.totalVideos === 0) {
+      return res.status(503).json({ ok: false, error: 'TikTok 크롤링 결과 0개 (쿠키 만료 또는 anti-bot 차단 가능성)' })
+    }
+    // 댓글 한국어 번역
+    try {
+      const { translateTiktokSummaryInPlace } = await import('./pipeline/translateTiktok.js')
+      await translateTiktokSummaryInPlace(summary)
+    } catch (e) {
+      console.warn(`[TikTok] 번역 실패 (영문 그대로): ${(e as Error).message}`)
+    }
+    const ttl = setMdlCache(TT_CACHE_KEY, summary, TT_CACHE_TTL_SEC)
+    console.log(`[TikTok] 완료 (${((Date.now() - t0) / 1000).toFixed(1)}s) - ${summary.totalVideos}개 영상, 댓글 ${summary.totalComments}개`)
+    res.json({
+      ok: true,
+      summary: { ...summary, cached: false, fetchedAt: ttl.fetchedAt, expiresAt: ttl.expiresAt },
+      cached: false,
+    })
+  } catch (e) {
+    console.error('[TikTok] 오류:', e)
+    saveCrawlLog('tiktok', 0, 'failed', String(e))
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+// ============================================================
 // 대시보드 가이드 (docs/dashboard-guide.md → HTML)
 // ============================================================
 let guideHtmlCache: { html: string; mtime: number } | null = null

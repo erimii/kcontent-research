@@ -14,6 +14,7 @@
   - MyDramaList — Playwright 헤드리스 (Cloudflare 우회)
   - Google Trends — Playwright trending 페이지 스크래핑 (7개 카테고리·시간·geo URL 병합)
   - YouTube — `youtubei.js` Innertube (무인증, 14개 해시태그 → 영상 30개 + 댓글 ~900개, 2단계 K-content 마커 필터)
+  - TikTok — `@tobyg74/tiktok-api-dl` + 사용자 sessionid 쿠키 (5개 키워드 × 2페이지 → 영상 30개 + 댓글 ~450개, 작품·사운드·크리에이터 분석)
 - **프론트**: Vanilla JS SPA (`public/static/app.js`) — 더보기/접기 토글로 스크롤 길이 절반 단축
 
 ---
@@ -196,6 +197,33 @@ TOP5 포스트마다:
 
 ---
 
+## TikTok SNS 버즈 통합
+
+**별도 파이프라인** ([src/crawlers/tiktok.ts](src/crawlers/tiktok.ts) + [src/pipeline/tiktokAnalysis.ts](src/pipeline/tiktokAnalysis.ts) + [src/pipeline/translateTiktok.ts](src/pipeline/translateTiktok.ts))
+
+- **인증 필수**: TikTok이 익명 search를 차단하여 사용자 sessionid 쿠키가 필요. 추출 방법은 `~/Desktop/secret/001/tiktok-cookies.json`에 Cookie-Editor JSON 형식 저장 (chmod 600)
+- **수집**: `@tobyg74/tiktok-api-dl` 라이브러리로 5개 키워드 × 2페이지 → 영상 30개 + 댓글 ~450개 (~30초~2분)
+  - 키워드 (단일 영문 단어가 라이브러리에서 가장 안정): `kdrama` `kdramatok` `kdramaedit` `koreandrama` `kdramaclip`
+  - 키워드당 25초 timeout 강제 (라이브러리 내부 retry 10회 누적 방지)
+- **2단계 K-content 마커 필터** (YouTube 동일 패턴 재활용):
+  - 비-K 드라마 명시(cdrama/jdrama/thai 등) / 비-NA 스크립트(Devanagari·Cyrillic·Arabic·Thai) / 로마자 힌디어/필리핀어
+  - 공식 채널이라도 비-NA 지역 분점(Disney+ Philippines 등)은 채널명 기준 탈락
+  - 1차(메타 시점)는 공식 면제, 2차(댓글 fetch 후 caption+sound title 포함)에서 모든 영상 재검사
+- **engagement score** (TikTok 특성 반영, log scale): `views×1 + likes×2 + comments×5 + shares×3` — 댓글·공유 비중 강
+- **🏆 작품별 화제도 (contentGroups)**: 영상 → 작품 단위 집계 6개 (KNOWN_DRAMAS_STATIC + caption 패턴 + K-쇼 화이트리스트)
+- **🎵 트렌딩 사운드**: 데이터셋 내 같은 sound 재사용 영상 ≥ 2개인 사운드 TOP 8 (절대 트렌드 아닌 우리 풀 내 신호)
+- **👤 K-드라마 크리에이터 랭킹**: 작가별 영상수·총 조회수·총 좋아요 합산 TOP 8 (아바타·verified·팔로워 메타 포함)
+- **댓글 한국어 번역** ([src/pipeline/translateTiktok.ts](src/pipeline/translateTiktok.ts)): 작품별 카드 댓글만 Groq AI로 번역 (cost 절감)
+- **캐시**: `mdl_cache` 테이블 (key `tiktok_buzz_v1`), TTL **3시간**
+
+**한계**:
+- TikTok 측 IP-level rate limit이 자주 발생 (video search 일시 차단). 30-60분 후 자동 해제, 그 동안 카드 비어 보임
+- 쿠키 만료 시(보통 1-2주) 재추출 필요. 만료 시 `Empty response` / `Login required` 에러
+- 북미 region 메타 비공개 → 텍스트 신호로 추정 (외국 K-팬 콘텐츠 일부 누수 가능)
+- 댓글 fetch 영상당 ~20개 제한 (YouTube ~30개 대비 적음)
+
+---
+
 ## MyDramaList 통합 (Top Airing K-드라마 분석)
 
 **별도 파이프라인** ([src/crawlers/mdl.ts](src/crawlers/mdl.ts) + [src/pipeline/mdlAnalysis.ts](src/pipeline/mdlAnalysis.ts))
@@ -303,6 +331,8 @@ TOP5 포스트마다:
 | POST | `/api/gtrends/refresh` | GTrends RSS 수집 + 카테고리 분류 + K-콘텐츠 비교 인사이트 (`{force:true}` 시 캐시 무시) |
 | GET | `/api/youtube` | YouTube 캐시 조회 |
 | POST | `/api/youtube/refresh` | YouTube `youtubei.js` 수집 + 콘텐츠 유형·반응 패턴 분석 (TTL 3h) |
+| GET | `/api/tiktok` | TikTok 캐시 조회 |
+| POST | `/api/tiktok/refresh` | TikTok 키워드 검색 + 작품·사운드·크리에이터 분석 (TTL 3h) — 사용자 쿠키 필수 |
 | GET | `/api/reports` | 리포트 목록 (`?type=daily\|weekly`) |
 | GET | `/api/reports/latest/:type` | 최신 리포트 |
 | GET | `/api/reports/:id` | 특정 리포트 |
@@ -327,7 +357,8 @@ src/
 │   ├── reddit.ts          ← RSS 기반 Reddit 수집 (4개 서브레딧)
 │   ├── mdl.ts             ← Playwright 기반 MyDramaList 크롤러
 │   ├── gtrends.ts         ← Google Trends Playwright 7페이지 병합
-│   └── youtube.ts         ← youtubei.js 14개 해시태그 검색 + 2단계 K-content 마커 필터 + 댓글
+│   ├── youtube.ts         ← youtubei.js 14개 해시태그 검색 + 2단계 K-content 마커 필터 + 댓글
+│   └── tiktok.ts          ← @tobyg74/tiktok-api-dl + 사용자 쿠키 (~/Desktop/secret/001/tiktok-cookies.json) 5개 키워드 검색 + 2단계 필터 + 댓글
 ├── data/
 │   ├── usEvents.ts             ← 미국 연간 이벤트 캘린더 50개 + K-콘텐츠 시사점 17개
 │   ├── known-dramas-static.ts  ← 한국 드라마·영화 ~150개 + 한국 배우/연기자 ~80명 (정적 사전, commit됨)
@@ -342,6 +373,8 @@ src/
 │   ├── gtrendsAnalysis.ts ← GTrends 카테고리 분류 + K비교 인사이트
 │   ├── youtubeAnalysis.ts ← YouTube engagement score 정렬 + 작품별 화제도 + 댓글 분석
 │   ├── translateYoutube.ts← YouTube 댓글 Groq AI 한국어 번역 (작품별 카드 표시용)
+│   ├── tiktokAnalysis.ts  ← TikTok engagement score (views·likes·comments·shares) + 작품·사운드·크리에이터 집계
+│   ├── translateTiktok.ts ← TikTok 댓글 Groq AI 한국어 번역 (작품별 카드)
 │   ├── normalizer.ts      ← 정규화·드라마 제목 추출
 │   ├── clusterer.ts       ← Jaccard/Levenshtein 타이틀 클러스터링
 │   ├── scorer.ts          ← 종합 점수 산출
@@ -370,6 +403,7 @@ data/k-content.db
                       + 🏅 단일 작품 lazy 분석 (key='mdl_drama_<slug>_v1', TTL 30일, 영구 누적)
                       + GTrends 북미 (key='us_daily_v1', TTL 1h)
                       + YouTube SNS 버즈 (key='youtube_buzz_v3', TTL 3h, contentGroups + 한국어 번역 포함)
+                      + TikTok SNS 버즈 (key='tiktok_buzz_v1', TTL 3h, 작품·사운드·크리에이터 + 한국어 번역)
 └── translation_cache - 영문 → 한국어 번역 (Groq, 텍스트 해시 키, 영구)
 ```
 
