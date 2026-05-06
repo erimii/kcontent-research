@@ -65,8 +65,23 @@ function classifyChannelType(nickname: string, uniqueId: string, signature: stri
   return 'community'
 }
 
-// ── 비-K 콘텐츠 / 비-NA 신호 (YouTube와 동일) ──────────────
-const NON_K_DRAMA_RE = /\b(c-?drama|chinese drama|j-?drama|japanese drama|thai drama|t-?drama|taiwanese drama|filipino drama|indian drama|turkish drama|donghua)\b/i
+// ── 비-K 콘텐츠 / 비-NA 신호 (TikTok 강화 버전) ──────────────
+// 1) 명시적 비-K 드라마 카테고리어 + C-드라마/J-드라마 제작 식별어 + 장르 키워드
+const NON_K_DRAMA_RE = /\b(c-?drama|chinese drama|cdramatok|chinesedrama|cdramaedit|cdramarecap|cdramareview|j-?drama|japanese drama|jdramatok|thai drama|t-?drama|tdramatok|taiwanese drama|filipino drama|pinoy drama|indian drama|turkish drama|donghua|xianxia|wuxia|cnovel|c-novel|chinese historical|chinese fantasy|tencent video|youku|mainland china|jpop drama)\b/i
+// 2) 한자(Hanzi) 검출 — 한국어 caption은 한글이며 한자 거의 안 씀 → 한자 등장 시 중국 콘텐츠 가능성 매우 큼
+//    한국 인명·지명 한자 표기는 0.x% 빈도라 트레이드오프 OK
+const HANZI_RE = /[一-鿿]/
+// 3) 비-K 해시태그 블랙리스트 (#kdrama 같이 달려 있어도 블랙리스트 우선)
+const NON_K_HASHTAG_RE = /^#?(c-?drama|chinesedrama|cdramatok|cdramaedit|cdramarecap|cdramaedits|cdramareview|cnovel|c-novel|chinese|chinesehistorical|xianxia|wuxia|donghua|j-?drama|japanesedrama|jdramatok|jdramaedit|t-?drama|thaidrama|tdramatok|tdramaedit|taiwanesedrama|filipino|pinoydrama|indiandrama|turkishdrama)/i
+// 4) 자주 등장하는 C-드라마 작품 키워드 (특히 viral 작품 위주)
+const NON_K_DRAMA_TITLES = [
+  'word of honor', 'the untamed', 'love between fairy and devil',
+  'eternal love', 'story of yanxi palace', 'nirvana in fire',
+  'joy of life', 'the longest day in chang', 'mysterious lotus casebook',
+  'till the end of the moon', 'love like the galaxy', 'love of light',
+  'a love so beautiful', 'go go squid', 'put your head on my shoulder',
+  'meteor garden', 'descendants of the sun chinese', "scent of time",
+]
 const NON_NA_SCRIPT_RE = /[ऀ-ॿ؀-ۿЀ-ӿ฀-๿]/  // Devanagari + Arabic + Cyrillic + Thai
 const NON_NA_LATIN_WORDS_RE = /\b(bhai|yaar|matlab|achha|kya hai|mera|hamara|tumhara|bik gaya|ek number|talaga|naman po)\b/i
 const HINDI_INTERMIX_RE = /\b(bhai|yaar)\b/i
@@ -85,16 +100,26 @@ const HANGUL_RE = /[가-힣]/
 const KNOWN_ACTOR_LOWER = new Set(KNOWN_ACTORS_STATIC.map((s) => s.toLowerCase()))
 const KNOWN_DRAMA_LOWER = new Set(KNOWN_DRAMAS_STATIC.map((s) => s.toLowerCase()))
 
-function hasKContentMarker(caption: string, channelMeta: string, hashtags: string[]): boolean {
+function hasKContentMarker(caption: string, channelMeta: string, hashtags: string[], soundTitle: string = ''): boolean {
   const text = `${caption}`
-  const fullText = `${caption} ${channelMeta}`
-  if (NON_K_DRAMA_RE.test(text)) return false
+  const fullText = `${caption} ${channelMeta} ${soundTitle}`
+  const lowerFull = fullText.toLowerCase()
+
+  // ── 명시적 비-K 신호 → 즉시 탈락 (#kdrama 도배해도 우선 적용) ──
+  if (NON_K_DRAMA_RE.test(fullText)) return false
+  if (hashtags.some((h) => NON_K_HASHTAG_RE.test(h))) return false
+  for (const t of NON_K_DRAMA_TITLES) if (lowerFull.includes(t)) return false
+  // 한자(Hanzi) 검출 — 캡션 + sound 제목까지. 한국어는 한글, 중국 콘텐츠는 한자/병음 위주
+  if (HANZI_RE.test(`${caption} ${soundTitle}`)) return false
+
+  // 비-NA 언어 신호
   if (NON_NA_SCRIPT_RE.test(fullText)) return false
   if (NON_NA_LATIN_WORDS_RE.test(fullText)) return false
   if (HINDI_INTERMIX_RE.test(fullText)) return false
+
+  // ── K-content 통과 신호 (하나 이상 만족) ──
   if (HANGUL_RE.test(text)) return true
   if (K_CONTENT_KEYWORDS.some((re) => re.test(text))) return true
-  // 해시태그가 #k...로 시작하면 통과 (단 너무 일반적인 #kpop 단독은 마커 약함 — kdrama·korean 류만)
   if (hashtags.some((h) => /^#?k(drama|orean|netflix|content|wave|hallyu|variety)/i.test(h))) return true
   // 알려진 K-배우/드라마 이름 매칭
   const lower = text.toLowerCase()
@@ -254,7 +279,8 @@ export async function crawlTiktokBuzz(
       return true  // 1차 면제 (description 없음)
     }
     const hashtags = extractHashtags(v.desc || '')
-    return hasKContentMarker(v.desc || '', `${a.nickname || ''} ${a.uniqueId || ''} ${a.signature || ''}`, hashtags)
+    const soundTitle = v.music?.title || ''
+    return hasKContentMarker(v.desc || '', `${a.nickname || ''} ${a.uniqueId || ''} ${a.signature || ''}`, hashtags, soundTitle)
   })
   console.log(`  [TikTok] 채널·1차 마커 필터 후 ${filtered1.length}개`)
 
@@ -331,11 +357,11 @@ export async function crawlTiktokBuzz(
     for (const r of settled) if (r.status === 'fulfilled' && r.value) fetched.push(r.value)
   }
 
-  // 6. 2차 K-content 마커 필터 — 댓글 텍스트까지 포함하여 모든 영상 재검사
+  // 6. 2차 K-content 마커 필터 — description + sound 제목까지 포함하여 모든 영상 재검사
   const verified = fetched.filter((v) => {
     const channelMeta = `${v.author.nickname} ${v.author.uniqueId} ${v.author.signature || ''}`
     if (v.channelType === 'official' && NON_NA_REGIONAL_OFFICIAL_RE.test(channelMeta)) return false
-    return hasKContentMarker(v.description, channelMeta, v.hashtags)
+    return hasKContentMarker(v.description, channelMeta, v.hashtags, v.sound?.title || '')
   })
   const droppedBy2nd = fetched.length - verified.length
 
