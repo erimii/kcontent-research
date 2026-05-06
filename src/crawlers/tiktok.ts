@@ -18,19 +18,23 @@ import type {
 const KEYWORDS = ['kdrama', 'kdramatok', 'kdramaedit', 'koreandrama', 'kdramaclip']
 const PAGES_PER_KEYWORD = 2
 
-// ── 쿠키 로드 ────────────────────────────────────────────
+// ── 쿠키 로드 (mtime 기반 cache invalidation) ───────────────
 const COOKIE_PATH = path.join(os.homedir(), 'Desktop/secret/001/tiktok-cookies.json')
-let cachedCookies: { name: string; value: string }[] | null = null
+let cookieCache: { mtime: number; cookies: { name: string; value: string }[] } | null = null
 function loadTiktokCookies(): { name: string; value: string }[] | null {
-  if (cachedCookies) return cachedCookies
   try {
     if (!fs.existsSync(COOKIE_PATH)) {
       console.warn(`[TikTok] 쿠키 파일 없음: ${COOKIE_PATH}`)
       return null
     }
+    const stat = fs.statSync(COOKIE_PATH)
+    const mtime = stat.mtimeMs
+    if (cookieCache && cookieCache.mtime === mtime) return cookieCache.cookies
     const arr = JSON.parse(fs.readFileSync(COOKIE_PATH, 'utf-8'))
-    cachedCookies = arr.filter((c: any) => c.name && c.value)
-    return cachedCookies
+    const cookies = arr.filter((c: any) => c.name && c.value)
+    cookieCache = { mtime, cookies }
+    console.log(`[TikTok] 쿠키 로드: ${cookies.length}개 항목 (mtime=${new Date(mtime).toISOString()})`)
+    return cookies
   } catch (e) {
     console.warn(`[TikTok] 쿠키 로드 실패: ${(e as Error).message}`)
     return null
