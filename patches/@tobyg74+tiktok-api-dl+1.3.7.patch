@@ -1,0 +1,21 @@
+diff --git a/node_modules/@tobyg74/tiktok-api-dl/lib/utils/search/videoSearch.js b/node_modules/@tobyg74/tiktok-api-dl/lib/utils/search/videoSearch.js
+index 18235e6..d26a5eb 100644
+--- a/node_modules/@tobyg74/tiktok-api-dl/lib/utils/search/videoSearch.js
++++ b/node_modules/@tobyg74/tiktok-api-dl/lib/utils/search/videoSearch.js
+@@ -129,12 +129,12 @@ const requestVideoSearch = async (keyword, page, cookie, proxy) => {
+             throw error;
+         }
+     }, {
+-        retries: 10,
+-        minTimeout: 1000,
+-        maxTimeout: 5000,
++        retries: 2,
++        minTimeout: 800,
++        maxTimeout: 2000,
+         factor: 2,
+         onRetry: (error, attempt) => {
+-            console.log(`Retry attempt ${attempt} due to: ${error}`);
++            // suppressed retry log (was: console.log)
+         }
+     });
+ };

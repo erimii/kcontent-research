@@ -15,9 +15,11 @@ import type {
 // ── 검색 키워드 (단일 영문 단어만 — 띄어쓰기는 라이브러리 retry 누적으로 매우 느려짐) ──
 const KEYWORDS = ['kdrama', 'koreandrama', 'kdramareview', 'kdramareaction', 'kdramaclip', 'kvarietyshow', 'lovelyrunner']
 const PAGES_PER_KEYWORD = 3
-const PER_REQUEST_TIMEOUT_MS = 15000     // 단일 (kw, page) timeout (라이브러리 retry 누적 캡)
-const RETRY_FAILED_AT_END = true         // 1차 실패한 (kw, page)들 끝에 한 번만 재시도
-const SEARCH_CONCURRENCY = 6             // 동시 search 호출 수 (병렬화로 wall-clock 단축)
+const PER_REQUEST_TIMEOUT_MS = 8000      // 단일 (kw, page) timeout (라이브러리 patch로 retry 줄였으니 짧게)
+const SEARCH_CONCURRENCY = 4             // 동시 호출 수 (균형 — wall-clock vs throttle)
+const BATCH_SLEEP_MS = 1000              // batch 간 sleep
+// 백오프 retry — wall-clock 절약 위해 보수적 (총 3회 시도, ~12s backoff)
+const PERSISTENT_RETRY_DELAYS = [3000, 8000]  // 3s → 8s, 총 3회 시도
 
 // ── 쿠키 로드 (mtime 기반 cache invalidation) ───────────────
 const COOKIE_PATH = path.join(os.homedir(), 'Desktop/secret/001/tiktok-cookies.json')
@@ -160,63 +162,70 @@ export async function crawlTiktokBuzz(
   const Search = TT.Search
   const GetVideoComments = TT.GetVideoComments
 
-  // 1. 키워드별 검색 — (kw, page) 작업을 병렬 batch로 실행
-  // 라이브러리 내부 retry는 10회 누적되어 매우 느려지므로 wrapper에서 짧은 timeout으로 캡
-  // 1차 실패한 작업은 마지막에 한 번 더 재시도 (TikTok 일시 거부는 자주 두 번째에 풀림)
-  console.log(`  [TikTok] ${keywords.length}개 키워드 × ${PAGES_PER_KEYWORD}페이지 병렬 검색 중...`)
+  // 1. 키워드별 검색 — 끈질긴 retry (백오프) + 동시성 낮춤
+  // 라이브러리 patch로 작업당 wall-clock 6초 → 같은 시간에 더 많이 시도 가능
+  // 한 작업이 실패하면 4s → 12s → 30s 간격으로 최대 4회 끈질기게 재시도 (rate limit 자연 풀림 활용)
+  console.log(`  [TikTok] ${keywords.length}개 키워드 × ${PAGES_PER_KEYWORD}페이지 검색 (동시 ${SEARCH_CONCURRENCY})...`)
   const allRaw: any[] = []
   type Task = { kw: string; page: number }
   const allTasks: Task[] = []
   for (const kw of keywords) for (let p = 1; p <= PAGES_PER_KEYWORD; p++) allTasks.push({ kw, page: p })
 
-  const oneSearch = async (t: Task): Promise<{ task: Task; items: any[]; ok: boolean }> => {
+  const t0 = Date.now()
+  // 단일 시도 (timeout 캡)
+  const oneAttempt = async (t: Task): Promise<{ items: any[]; ok: boolean }> => {
     try {
       const searchPromise = Search(t.kw, { type: 'video', cookie: cookies, page: t.page })
       const timeoutPromise = new Promise((_, rej) => setTimeout(() => rej(new Error(`timeout-${PER_REQUEST_TIMEOUT_MS / 1000}s`)), PER_REQUEST_TIMEOUT_MS))
       const r: any = await Promise.race([searchPromise, timeoutPromise])
       if (r?.status === 'success' && Array.isArray(r?.result) && r.result.length > 0) {
-        return { task: t, items: r.result.slice(0, perKeywordLimit), ok: true }
+        return { items: r.result.slice(0, perKeywordLimit), ok: true }
       }
-      return { task: t, items: [], ok: false }
+      return { items: [], ok: false }
     } catch {
-      return { task: t, items: [], ok: false }
+      return { items: [], ok: false }
     }
   }
 
-  // batch 병렬 실행
-  const runBatched = async (tasks: Task[]): Promise<{ task: Task; items: any[]; ok: boolean }[]> => {
-    const out: { task: Task; items: any[]; ok: boolean }[] = []
-    for (let i = 0; i < tasks.length; i += SEARCH_CONCURRENCY) {
-      const slice = tasks.slice(i, i + SEARCH_CONCURRENCY)
-      const settled = await Promise.allSettled(slice.map(oneSearch))
-      for (const s of settled) if (s.status === 'fulfilled') out.push(s.value)
-      // batch 간 짧은 cooldown (rate limit 회피)
-      if (i + SEARCH_CONCURRENCY < tasks.length) await new Promise((res) => setTimeout(res, 800))
+  // 끈질긴 retry — backoff
+  const persistentSearch = async (t: Task): Promise<{ task: Task; items: any[]; ok: boolean; tries: number }> => {
+    let tries = 0
+    for (let attempt = 0; attempt <= PERSISTENT_RETRY_DELAYS.length; attempt++) {
+      tries++
+      const r = await oneAttempt(t)
+      if (r.ok) return { task: t, items: r.items, ok: true, tries }
+      if (attempt < PERSISTENT_RETRY_DELAYS.length) {
+        await new Promise((res) => setTimeout(res, PERSISTENT_RETRY_DELAYS[attempt]))
+      }
     }
-    return out
+    return { task: t, items: [], ok: false, tries }
   }
 
-  const firstResults = await runBatched(allTasks)
-  for (const r of firstResults) {
+  // 동시성 낮은 batch 실행 (TikTok throttle 패턴 회피)
+  const results: { task: Task; items: any[]; ok: boolean; tries: number }[] = []
+  for (let i = 0; i < allTasks.length; i += SEARCH_CONCURRENCY) {
+    const slice = allTasks.slice(i, i + SEARCH_CONCURRENCY)
+    const settled = await Promise.allSettled(slice.map(persistentSearch))
+    for (const s of settled) if (s.status === 'fulfilled') results.push(s.value)
+    if (i + SEARCH_CONCURRENCY < allTasks.length) await new Promise((res) => setTimeout(res, BATCH_SLEEP_MS))
+  }
+
+  let totalTries = 0
+  for (const r of results) {
+    totalTries += r.tries
     if (r.ok) for (const it of r.items) allRaw.push({ ...it, _searchKeyword: r.task.kw, _page: r.task.page })
   }
-  const failed = firstResults.filter((r) => !r.ok).map((r) => r.task)
-  let retryGained = 0
-
-  if (RETRY_FAILED_AT_END && failed.length > 0) {
-    console.log(`  [TikTok] 1차 실패 ${failed.length}개 재시도 중...`)
-    await new Promise((res) => setTimeout(res, 3000))
-    const retryResults = await runBatched(failed)
-    for (const r of retryResults) {
-      if (r.ok) {
-        for (const it of r.items) allRaw.push({ ...it, _searchKeyword: r.task.kw, _page: r.task.page })
-        retryGained++
-      }
-    }
+  const totalOk = results.filter((r) => r.ok).length
+  const wallSec = ((Date.now() - t0) / 1000).toFixed(1)
+  console.log(`  [TikTok] raw ${allRaw.length}개 (총 ${allTasks.length}작업, 성공 ${totalOk}, 평균 ${(totalTries / allTasks.length).toFixed(1)}회 시도, ${wallSec}s)`)
+  // 키워드별 성공/실패 요약
+  const byKw = new Map<string, { ok: number; fail: number }>()
+  for (const r of results) {
+    const e = byKw.get(r.task.kw) ?? { ok: 0, fail: 0 }
+    if (r.ok) e.ok++; else e.fail++
+    byKw.set(r.task.kw, e)
   }
-
-  const totalOk = firstResults.filter((r) => r.ok).length + retryGained
-  console.log(`  [TikTok] raw ${allRaw.length}개 (총 ${allTasks.length}작업, 성공 ${totalOk}, 재시도 회수 +${retryGained})`)
+  for (const [kw, s] of byKw) console.log(`    "${kw}": ${s.ok}/${s.ok + s.fail} 페이지 성공`)
 
   // 2. id dedup, 더 큰 playCount 유지
   const merged = new Map<string, any>()
