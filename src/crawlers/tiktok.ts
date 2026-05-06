@@ -205,8 +205,19 @@ export async function crawlTiktokBuzz(
   const dedup = [...merged.values()]
   console.log(`  [TikTok] dedup 후 ${dedup.length}개 유니크 영상`)
 
+  // 2.5. 시간 필터 — 최근 30일 이내 업로드만 (트렌드성 유지)
+  // createTime: Unix 초 단위. 메타 누락 시(0/undefined) 보수적으로 통과시켜 정보 손실 방지
+  const THIRTY_DAYS_AGO = Math.floor(Date.now() / 1000) - 30 * 24 * 3600
+  const recent = dedup.filter((v) => {
+    const ct = v.createTime || 0
+    if (!ct) return true  // 타임스탬프 없으면 통과 (보수적)
+    return ct >= THIRTY_DAYS_AGO
+  })
+  const droppedByDate = dedup.length - recent.length
+  console.log(`  [TikTok] 30일 이내 필터 후 ${recent.length}개 (${droppedByDate}개 제거)`)
+
   // 3. 1차 필터 — 채널 분류 + caption 마커 (description 없는 단계)
-  const channelFiltered = dedup.filter((v) => {
+  const channelFiltered = recent.filter((v) => {
     const a = v.author || {}
     const ct = classifyChannelType(a.nickname || '', a.uniqueId || '', a.signature || '')
     if (ct === 'official' || ct === 'creator') return true
