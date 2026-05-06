@@ -1082,6 +1082,55 @@ function renderMdlDrama(a, idx) {
           }).join('')}
         </div>`
       })() : ''}
+
+      <!-- 시청자 즉각 반응 (코멘트 별도 분석) -->
+      ${(() => {
+        const ci = a.commentInsights
+        if (!ci || !ci.commentCount) return ''
+        const cTotal = ci.sentiment.positive + ci.sentiment.negative || 1
+        const cPos = Math.round(ci.sentiment.positiveRatio * 100)
+        const cNeg = Math.round(ci.sentiment.negativeRatio * 100)
+        const dramaUrl = (a.drama.url || '').replace(/\/$/, '')
+        return `
+        <div style="margin-top:12px;padding:10px 12px;background:rgba(59,130,246,0.04);border-radius:6px;border:1px solid rgba(59,130,246,0.15)">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+            <div style="font-size:13px;color:#60a5fa;text-transform:uppercase;font-weight:700">💬 시청자 즉각 반응 (코멘트 ${ci.commentCount}개)</div>
+            <a href="${escHtml(dramaUrl)}#comments" target="_blank" rel="noopener noreferrer" style="font-size:10px;color:#60a5fa;text-decoration:none">MDL에서 모든 코멘트 보기 ↗</a>
+          </div>
+          <div style="font-size:11px;line-height:1.5;color:var(--text-primary);margin-bottom:6px">${escHtml(ci.sentimentSummary)}</div>
+          ${cTotal > 1 ? `
+            <div style="display:flex;height:5px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,0.04);margin-bottom:8px">
+              <div style="width:${cPos}%;background:#10b981"></div>
+              <div style="width:${cNeg}%;background:#ef4444"></div>
+            </div>` : ''}
+          ${(ci.debates && ci.debates.length) ? `
+            <div style="margin-bottom:8px">
+              <div style="font-size:13px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:5px">🗣️ 코멘트 쟁점</div>
+              ${renderCommentDebatesInline(ci.debates)}
+            </div>` : ''}
+          ${(ci.topLiked && ci.topLiked.length) ? `
+            <div>
+              <div style="font-size:13px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:5px">👍 좋아요 TOP 코멘트</div>
+              ${ci.topLiked.map(c => {
+                const display = c.bodyKo || c.body
+                const original = c.bodyKo && c.bodyKo !== c.body ? c.body : null
+                return `
+                <a href="${escHtml(dramaUrl)}#comments" target="_blank" rel="noopener noreferrer" style="display:block;text-decoration:none;color:inherit">
+                  <div style="font-size:11px;padding:6px 10px;background:rgba(255,255,255,0.025);border-left:2px solid ${SENT_COLOR[c.sentiment]};margin-bottom:4px;border-radius:3px;line-height:1.5;cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='rgba(96,165,250,0.08)'" onmouseout="this.style.background='rgba(255,255,255,0.025)'">
+                    <span style="margin-right:5px">${SENT_ICON[c.sentiment]}</span>
+                    <strong style="color:#60a5fa">${escHtml(c.username)}</strong>
+                    <span style="color:var(--text-muted)">👍${c.likes}</span>
+                    ${c.daysAgo ? `<span style="color:var(--text-muted);margin-left:6px;font-size:10px">${escHtml(c.daysAgo)}</span>` : ''}
+                    ${c.isReply ? `<span style="color:var(--text-muted);margin-left:6px;font-size:10px;opacity:0.6">↳ 답글</span>` : ''}
+                    <span style="color:var(--text-muted);margin-left:6px;font-size:10px">↗</span>
+                    <div style="margin-top:3px;color:var(--text-primary)">"${escHtml(display)}"</div>
+                    ${original ? `<div style="font-size:10px;color:var(--text-muted);margin-top:3px;font-style:italic;opacity:0.7">↳ ${escHtml(original)}</div>` : ''}
+                  </div>
+                </a>`
+              }).join('')}
+            </div>` : ''}
+        </div>`
+      })()}
     </div>`
 }
 

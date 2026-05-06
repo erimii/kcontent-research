@@ -26,17 +26,9 @@ function reviewToComment(r: MdlReview, idx: number): RedditComment {
   }
 }
 
-// 드라마를 RedditPost 셰입으로 래핑하면 deepAnalyzePosts(post[]).deepAnalysis가 재활용됨
-// 리뷰(긴 평론) + Comments(시청자 raw 반응) 모두 동일 풀로 합산 → 클러스터링 표본 ↑
-function dramaToFakePost(d: MdlDrama): RedditPost {
+// 리뷰만 담은 fake post (긴 평론 분석용)
+function dramaToReviewPost(d: MdlDrama): RedditPost {
   const reviewComments = d.reviews.map((r, i) => reviewToComment(r, i))
-  const liveComments: RedditComment[] = (d.comments || []).map((c, i) => ({
-    id: `mdl_cmt_${i}_${c.username}`,
-    body: c.body,
-    score: c.likes,
-    depth: c.isReply ? 1 : 0,
-  }))
-  const comments = [...reviewComments, ...liveComments]
   return {
     id: d.slug,
     subreddit: 'mdl',
@@ -44,11 +36,43 @@ function dramaToFakePost(d: MdlDrama): RedditPost {
     selftext: d.description || '',
     url: d.url,
     score: Math.round(d.rating * 10),
-    commentCount: d.reviews.length + (d.comments?.length || 0),
+    commentCount: d.reviews.length,
     createdAt: new Date().toISOString(),
-    comments,
+    comments: reviewComments,
     flair: d.year ? `${d.year}` : undefined,
   }
+}
+
+// 코멘트만 담은 fake post (시청자 즉각 반응 분석용)
+function dramaToCommentPost(d: MdlDrama): RedditPost {
+  const liveComments: RedditComment[] = (d.comments || []).map((c, i) => ({
+    id: `mdl_cmt_${i}_${c.username}`,
+    body: c.body,
+    score: c.likes,
+    depth: c.isReply ? 1 : 0,
+  }))
+  return {
+    id: `${d.slug}_comments`,
+    subreddit: 'mdl',
+    title: d.title,
+    selftext: '',
+    url: d.url,
+    score: Math.round(d.rating * 10),
+    commentCount: d.comments?.length || 0,
+    createdAt: new Date().toISOString(),
+    comments: liveComments,
+    flair: d.year ? `${d.year}` : undefined,
+  }
+}
+
+// 코멘트 본문 휴리스틱 감정 판정 (리뷰와 동일 키워드 풀)
+function classifyCommentSentiment(body: string): 'positive' | 'negative' | 'neutral' {
+  const lower = body.toLowerCase()
+  const POS = ['love', 'amazing', 'great', 'masterpiece', 'beautiful', 'perfect', 'incredible', 'fantastic', 'enjoy', 'best', 'awesome', 'addicted', 'omg', 'wow']
+  const NEG = ['hate', 'bad', 'boring', 'disappointing', 'worst', 'awful', 'terrible', 'cringe', 'nope', 'meh', 'dropped']
+  const p = POS.reduce((s, k) => s + (lower.includes(k) ? 1 : 0), 0)
+  const n = NEG.reduce((s, k) => s + (lower.includes(k) ? 1 : 0), 0)
+  return p > n ? 'positive' : n > p ? 'negative' : 'neutral'
 }
 
 function buildRatingBreakdown(reviews: MdlReview[]) {
@@ -108,20 +132,23 @@ function buildPopularityReason(d: MdlDrama, breakdown: ReturnType<typeof buildRa
   return text || '시청자 평가 데이터가 누적 중입니다.'
 }
 
-function buildSentimentSummary(pos: number, neg: number): string {
+function buildSentimentSummary(pos: number, neg: number, label: string = '리뷰'): string {
   const total = pos + neg
-  if (total === 0) return '리뷰 표본이 부족해 감정 분포 판단이 어렵습니다.'
+  if (total === 0) return `${label} 표본이 부족해 감정 분포 판단이 어렵습니다.`
   const posR = pos / total
-  if (posR >= 0.7) return `리뷰의 ${Math.round(posR * 100)}%가 긍정적이며 호의적 분위기가 우세합니다.`
-  if (posR <= 0.3) return `리뷰의 ${Math.round((1 - posR) * 100)}%가 비판적으로, 부정적 평가가 다수입니다.`
+  if (posR >= 0.7) return `${label}의 ${Math.round(posR * 100)}%가 긍정적이며 호의적 분위기가 우세합니다.`
+  if (posR <= 0.3) return `${label}의 ${Math.round((1 - posR) * 100)}%가 비판적으로, 부정적 평가가 다수입니다.`
   if (Math.abs(posR - 0.5) < 0.15) return `긍정 ${Math.round(posR * 100)}% · 부정 ${Math.round((1 - posR) * 100)}%로 평가가 양분되어 있습니다.`
   return posR > 0.5 ? `긍정(${Math.round(posR * 100)}%)이 부정(${Math.round((1 - posR) * 100)}%)을 앞서며 호의적 우세입니다.` : `부정(${Math.round((1 - posR) * 100)}%)이 긍정(${Math.round(posR * 100)}%)을 앞서며 비판적 우세입니다.`
 }
 
 export function analyzeMdlDramas(dramas: MdlDrama[]): MdlSummary {
-  // deepAnalysis로 리뷰별 토픽/감정 처리 (드라마 단위로 1개 fake post씩)
-  const fakePosts = dramas.map(dramaToFakePost)
-  const deepResults = deepAnalyzePosts(fakePosts)
+  // 리뷰 풀과 코멘트 풀을 분리하여 각각 deepAnalysis 실행
+  // → 리뷰(긴 평론, 분석적 톤) vs 코멘트(짧고 즉각적, 감정적 톤) 차이를 보존
+  const reviewPosts = dramas.map(dramaToReviewPost)
+  const commentPosts = dramas.map(dramaToCommentPost)
+  const deepResults = deepAnalyzePosts(reviewPosts)
+  const commentDeepResults = deepAnalyzePosts(commentPosts)
 
   // 평가 분열 판정 (둘 중 하나 만족 시 polarized=true)
   // 1) MDL 공식 평점 ≥ 8 인데 5점 미만 리뷰 비율이 30% 이상 → 공식 평점과 실제 시청자 분포 불일치
@@ -142,7 +169,40 @@ export function analyzeMdlDramas(dramas: MdlDrama[]): MdlSummary {
   const analyses: MdlDramaAnalysis[] = dramas.map((d, i) => {
     const breakdown = buildRatingBreakdown(d.reviews)
     const deep = deepResults[i]
+    const commentDeep = commentDeepResults[i]
     const { polarized, reason: polarizedReason } = detectPolarized(d, breakdown, deep.sentiment.positiveRatio, deep.sentiment.negativeRatio)
+
+    // ── 코멘트 인사이트 빌드 ──
+    const allComments = d.comments || []
+    let commentInsights: MdlDramaAnalysis['commentInsights']
+    if (allComments.length > 0) {
+      const topLiked = [...allComments]
+        .sort((a, b) => b.likes - a.likes)
+        .slice(0, 5)
+        .map((c) => {
+          const trimmed = c.body.length > 240 ? c.body.slice(0, 237) + '...' : c.body
+          return {
+            username: c.username,
+            likes: c.likes,
+            daysAgo: c.daysAgo,
+            body: trimmed,
+            sentiment: classifyCommentSentiment(c.body),
+            isReply: c.isReply,
+          }
+        })
+      commentInsights = {
+        commentCount: allComments.length,
+        sentiment: {
+          positive: commentDeep.sentiment.positive,
+          negative: commentDeep.sentiment.negative,
+          positiveRatio: commentDeep.sentiment.positiveRatio,
+          negativeRatio: commentDeep.sentiment.negativeRatio,
+        },
+        sentimentSummary: buildSentimentSummary(commentDeep.sentiment.positive, commentDeep.sentiment.negative, '코멘트'),
+        debates: commentDeep.commentDebates,
+        topLiked,
+      }
+    }
 
     const repReviews = [...d.reviews]
       .sort((a, b) => b.helpful - a.helpful)
@@ -191,6 +251,7 @@ export function analyzeMdlDramas(dramas: MdlDrama[]): MdlSummary {
       representativeReviews: repReviews,
       polarized,
       polarizedReason,
+      commentInsights,
     }
   })
 

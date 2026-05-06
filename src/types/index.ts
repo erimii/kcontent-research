@@ -308,6 +308,13 @@ export interface MdlDramaAnalysis {
   representativeReviews: { username: string; rating: number; helpful: number; body: string; bodyKo?: string; sentiment: 'positive' | 'negative' | 'neutral' }[]
   polarized: boolean             // 평가 분열 (평점 vs 리뷰 톤 불일치)
   polarizedReason?: string       // 분열로 판정된 이유 (UI 툴팁용)
+  commentInsights?: {            // 시청자 즉각 반응 (코멘트만 별도 분석)
+    commentCount: number
+    sentiment: { positive: number; negative: number; positiveRatio: number; negativeRatio: number }
+    sentimentSummary: string
+    debates: DebateTopic[]
+    topLiked: { username: string; likes: number; daysAgo?: string; body: string; bodyKo?: string; sentiment: 'positive' | 'negative' | 'neutral'; isReply: boolean }[]
+  }
 }
 
 export interface MdlSummary {
