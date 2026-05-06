@@ -12,11 +12,12 @@ import type {
   TikTokVideo, TikTokComment, TikTokAuthor, TikTokSound, TikTokChannelType,
 } from '../types/index.js'
 
-// ── 검색 키워드 (smoke test 검증: 단일 영문 단어가 가장 안정적) ──
-// 띄어쓰기·복합어는 라이브러리 retry 누적으로 매우 느려짐 → 단일 단어만 사용
-// 페이지 2까지 가져와 영상 풀 확보
-const KEYWORDS = ['kdrama', 'kdramatok', 'kdramaedit', 'koreandrama', 'kdramaclip']
-const PAGES_PER_KEYWORD = 2
+// ── 검색 키워드 (단일 영문 단어만 — 띄어쓰기는 라이브러리 retry 누적으로 매우 느려짐) ──
+const KEYWORDS = ['kdrama', 'koreandrama', 'kdramareview', 'kdramareaction', 'kdramaclip', 'kvarietyshow']
+const PAGES_PER_KEYWORD = 3
+const PER_REQUEST_TIMEOUT_MS = 15000     // 단일 (kw, page) timeout (라이브러리 retry 누적 캡)
+const RETRY_FAILED_AT_END = true         // 1차 실패한 (kw, page)들 끝에 한 번만 재시도
+const SEARCH_CONCURRENCY = 6             // 동시 search 호출 수 (병렬화로 wall-clock 단축)
 
 // ── 쿠키 로드 (mtime 기반 cache invalidation) ───────────────
 const COOKIE_PATH = path.join(os.homedir(), 'Desktop/secret/001/tiktok-cookies.json')
@@ -132,30 +133,63 @@ export async function crawlTiktokBuzz(
   const Search = TT.Search
   const GetVideoComments = TT.GetVideoComments
 
-  // 1. 키워드별 검색 (페이지 2까지) — 키워드별 timeout 25초 강제
-  // 라이브러리 내부 retry 10회 + 5초 timeout 누적되어 그 이상 걸리면 강제 중단
-  console.log(`  [TikTok] ${keywords.length}개 키워드 × ${PAGES_PER_KEYWORD}페이지 검색 중...`)
+  // 1. 키워드별 검색 — (kw, page) 작업을 병렬 batch로 실행
+  // 라이브러리 내부 retry는 10회 누적되어 매우 느려지므로 wrapper에서 짧은 timeout으로 캡
+  // 1차 실패한 작업은 마지막에 한 번 더 재시도 (TikTok 일시 거부는 자주 두 번째에 풀림)
+  console.log(`  [TikTok] ${keywords.length}개 키워드 × ${PAGES_PER_KEYWORD}페이지 병렬 검색 중...`)
   const allRaw: any[] = []
-  for (const kw of keywords) {
-    for (let page = 1; page <= PAGES_PER_KEYWORD; page++) {
-      try {
-        const searchPromise = Search(kw, { type: 'video', cookie: cookies, page })
-        const timeoutPromise = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout-25s')), 25000))
-        const r: any = await Promise.race([searchPromise, timeoutPromise])
-        if (r?.status !== 'success') {
-          console.warn(`  [TikTok] "${kw}" page ${page} 실패: ${r?.message || 'unknown'}`)
-          break  // 첫 페이지 실패 시 다음 페이지 스킵
-        }
-        const items = (r?.result || []).slice(0, perKeywordLimit)
-        for (const it of items) allRaw.push({ ...it, _searchKeyword: kw, _page: page })
-        await new Promise((res) => setTimeout(res, 600))
-      } catch (e) {
-        console.warn(`  [TikTok] "${kw}" page ${page} 에러: ${(e as Error).message}`)
-        break
+  type Task = { kw: string; page: number }
+  const allTasks: Task[] = []
+  for (const kw of keywords) for (let p = 1; p <= PAGES_PER_KEYWORD; p++) allTasks.push({ kw, page: p })
+
+  const oneSearch = async (t: Task): Promise<{ task: Task; items: any[]; ok: boolean }> => {
+    try {
+      const searchPromise = Search(t.kw, { type: 'video', cookie: cookies, page: t.page })
+      const timeoutPromise = new Promise((_, rej) => setTimeout(() => rej(new Error(`timeout-${PER_REQUEST_TIMEOUT_MS / 1000}s`)), PER_REQUEST_TIMEOUT_MS))
+      const r: any = await Promise.race([searchPromise, timeoutPromise])
+      if (r?.status === 'success' && Array.isArray(r?.result) && r.result.length > 0) {
+        return { task: t, items: r.result.slice(0, perKeywordLimit), ok: true }
+      }
+      return { task: t, items: [], ok: false }
+    } catch {
+      return { task: t, items: [], ok: false }
+    }
+  }
+
+  // batch 병렬 실행
+  const runBatched = async (tasks: Task[]): Promise<{ task: Task; items: any[]; ok: boolean }[]> => {
+    const out: { task: Task; items: any[]; ok: boolean }[] = []
+    for (let i = 0; i < tasks.length; i += SEARCH_CONCURRENCY) {
+      const slice = tasks.slice(i, i + SEARCH_CONCURRENCY)
+      const settled = await Promise.allSettled(slice.map(oneSearch))
+      for (const s of settled) if (s.status === 'fulfilled') out.push(s.value)
+      // batch 간 짧은 cooldown (rate limit 회피)
+      if (i + SEARCH_CONCURRENCY < tasks.length) await new Promise((res) => setTimeout(res, 800))
+    }
+    return out
+  }
+
+  const firstResults = await runBatched(allTasks)
+  for (const r of firstResults) {
+    if (r.ok) for (const it of r.items) allRaw.push({ ...it, _searchKeyword: r.task.kw, _page: r.task.page })
+  }
+  const failed = firstResults.filter((r) => !r.ok).map((r) => r.task)
+  let retryGained = 0
+
+  if (RETRY_FAILED_AT_END && failed.length > 0) {
+    console.log(`  [TikTok] 1차 실패 ${failed.length}개 재시도 중...`)
+    await new Promise((res) => setTimeout(res, 3000))
+    const retryResults = await runBatched(failed)
+    for (const r of retryResults) {
+      if (r.ok) {
+        for (const it of r.items) allRaw.push({ ...it, _searchKeyword: r.task.kw, _page: r.task.page })
+        retryGained++
       }
     }
   }
-  console.log(`  [TikTok] raw ${allRaw.length}개 (${keywords.length}개 키워드 × ${PAGES_PER_KEYWORD}페이지)`)
+
+  const totalOk = firstResults.filter((r) => r.ok).length + retryGained
+  console.log(`  [TikTok] raw ${allRaw.length}개 (총 ${allTasks.length}작업, 성공 ${totalOk}, 재시도 회수 +${retryGained})`)
 
   // 2. id dedup, 더 큰 playCount 유지
   const merged = new Map<string, any>()
