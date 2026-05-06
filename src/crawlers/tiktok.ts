@@ -227,6 +227,14 @@ export async function crawlTiktokBuzz(
   }
   for (const [kw, s] of byKw) console.log(`    "${kw}": ${s.ok}/${s.ok + s.fail} 페이지 성공`)
 
+  // 1.5. Cascade Discovery 시도 결과 (롤백):
+  //   GetVideosByMusicId, GetUserPosts 모두 라이브러리에서 cookie 헤더 안 보냄 → 익명 호출
+  //   → TikTok이 100% "Empty response" / "Unexpected end of JSON input" 반환
+  //   → 0건 추가 + wall-clock 23-35초만 낭비
+  //   해결: 라이브러리 소스에 cookie 헤더 + X-Bogus 시그니처 추가 patch (반나절+)
+  //   또는 cron 백그라운드 누적으로 시간 분산 (~2시간 구현, 진짜 해결책)
+  //   현재는 cascade 비활성
+
   // 2. id dedup, 더 큰 playCount 유지
   const merged = new Map<string, any>()
   for (const v of allRaw) {
