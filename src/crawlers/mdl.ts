@@ -206,6 +206,50 @@ async function fetchDramaReviews(page: Page, dramaUrl: string, max: number): Pro
   return { reviews: all, nativeTitle }
 }
 
+// ── 작품 메인 페이지의 Comments 섹션 파싱 ──
+// `<li class="post comment">` 구조. lazy-loaded이지만 초기 렌더 시 ~30개 노출.
+async function fetchDramaComments(page: Page, dramaUrl: string, max: number): Promise<import('../types/index.js').MdlComment[]> {
+  const mainUrl = dramaUrl.replace(/\/$/, '')
+  try {
+    await page.goto(mainUrl, { waitUntil: 'domcontentloaded', timeout: 60000 })
+    await waitForCloudflareIfNeeded(page)
+    // Comments 섹션은 페이지 하단 → 스크롤 + 짧게 대기
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+    await page.waitForTimeout(2500)
+    await page.waitForSelector('.post.comment', { timeout: 8000 }).catch(() => {})
+  } catch (e) {
+    console.warn(`  [MDL] comment 로드 실패:`, (e as Error).message)
+    return []
+  }
+
+  const raw = await page.evaluate((maxN: number) => {
+    const items = Array.from(document.querySelectorAll('li.post.comment')).slice(0, maxN)
+    const out: any[] = []
+    for (const el of items) {
+      const id = el.getAttribute('id') || ''
+      const userEl = el.querySelector('.post-header b')
+      const dateEl = el.querySelector('.post-header .date')
+      const msgEl = el.querySelector('.post-message')
+      const likeBtn = el.querySelector('.post-actions .btn-like')
+      const isReply = !!el.querySelector('.tl-container')
+      const body = msgEl ? (msgEl.textContent || '').replace(/\s+/g, ' ').trim() : ''
+      if (body.length < 5) continue
+      const likeMatch = likeBtn ? (likeBtn.textContent || '').match(/(\d+)/) : null
+      out.push({
+        id,
+        username: userEl ? (userEl.textContent || '').trim() : 'anon',
+        body: body.length > 1500 ? body.slice(0, 1500) + '…' : body,
+        likes: likeMatch ? parseInt(likeMatch[1], 10) : 0,
+        daysAgo: dateEl ? (dateEl.textContent || '').trim() : undefined,
+        isReply,
+      })
+    }
+    return out
+  }, max)
+
+  return raw
+}
+
 // ── 메인: top airing K-드라마 N개 + 각각 리뷰 수집 ──────────
 // ── 제목만 가벼이 추출 (popular / top 페이지) ──────────────────
 // 사전 매칭(buildKnownDramaPattern)용. 리뷰·평점 등 부가 데이터 미수집 → 빠름.
@@ -291,10 +335,146 @@ export async function crawlMdlPopularTitles(topN: number = 50): Promise<string[]
   }
 }
 
+// ── 글로벌 인기 K-드라마 (메타만, 리뷰·코멘트 없음) ──────
+// /shows/popular 페이지는 페이지당 ~30~50개. Top 50을 채우려면 1~2페이지 순회.
+export async function crawlMdlPopularRanking(topN: number = 50): Promise<Array<Pick<MdlDrama, 'slug' | 'title' | 'url' | 'rating' | 'posterUrl' | 'episodes' | 'year' | 'description'>>> {
+  const browser: Browser = await chromium.launch({ headless: true })
+  try {
+    const context = await browser.newContext({
+      userAgent: UA,
+      viewport: { width: 1280, height: 720 },
+      locale: 'en-US',
+    })
+    const page = await context.newPage()
+
+    const out: Array<Pick<MdlDrama, 'slug' | 'title' | 'url' | 'rating' | 'posterUrl' | 'episodes' | 'year' | 'description'>> = []
+    const seenSlugs = new Set<string>()
+
+    // 한국 콘텐츠가 페이지에 섞여서 나오므로 최대 5페이지까지 순회
+    for (let p = 1; p <= 5; p++) {
+      const url = p === 1 ? `${BASE_URL}/shows/popular` : `${BASE_URL}/shows/popular/?page=${p}`
+      try {
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 })
+        await waitForCloudflareIfNeeded(page)
+        await page.waitForSelector('.box', { timeout: 30000 })
+      } catch (e) {
+        console.warn(`  [MDL-popular-rank] page ${p} 로드 실패:`, (e as Error).message)
+        break
+      }
+
+      const items = await page.evaluate((base) => {
+        const cards = Array.from(document.querySelectorAll('.box'))
+        const result: any[] = []
+        const dramaHrefRe = /^\/\d+-/
+        for (let i = 0; i < cards.length; i++) {
+          const c = cards[i]
+          const text = c.textContent ? c.textContent.replace(/\s+/g, ' ') : ''
+          if (!/Korean Drama/i.test(text)) continue
+
+          const allLinks = c.querySelectorAll('a[href]')
+          let linkEl: Element | null = null
+          for (let j = 0; j < allLinks.length; j++) {
+            const h = allLinks[j].getAttribute('href') || ''
+            if (dramaHrefRe.test(h)) { linkEl = allLinks[j]; break }
+          }
+          if (!linkEl) continue
+
+          const href = linkEl.getAttribute('href') || ''
+          const slug = href.replace(/^\/+/, '').split('/')[0]
+          if (!slug) continue
+
+          const ratingEl = c.querySelector('.score')
+          const posterImg = c.querySelector('img')
+          const yearMatch = text.match(/Korean Drama\s*-\s*(\d{4})/i)
+          const epMatch = text.match(/(\d+)\s*episodes/i)
+
+          const rating = parseFloat((ratingEl && ratingEl.textContent ? ratingEl.textContent.trim() : '') || '0')
+          const idx = text.indexOf(String(rating))
+          const description = idx >= 0 ? text.slice(idx + String(rating).length).trim().slice(0, 350) : ''
+
+          const titleText = linkEl.textContent ? linkEl.textContent.trim() : ''
+          const titleAttr = linkEl.getAttribute('title') || ''
+          const altText = posterImg ? (posterImg.getAttribute('alt') || '') : ''
+          const title = titleText || titleAttr || altText || slug.replace(/^\d+-/, '').replace(/-/g, ' ')
+
+          const posterUrl = posterImg ? (posterImg.getAttribute('data-src') || posterImg.getAttribute('src') || undefined) : undefined
+
+          result.push({
+            slug,
+            title,
+            url: base + href,
+            rating,
+            posterUrl,
+            year: yearMatch ? parseInt(yearMatch[1], 10) : undefined,
+            episodes: epMatch ? parseInt(epMatch[1], 10) : undefined,
+            description,
+          })
+        }
+        return result
+      }, BASE_URL)
+
+      let added = 0
+      for (const m of items) {
+        if (seenSlugs.has(m.slug)) continue
+        seenSlugs.add(m.slug)
+        out.push(m)
+        added++
+      }
+      console.log(`  [MDL-popular-rank] page ${p}: K-drama +${added}개 (누적 ${out.length})`)
+      if (out.length >= topN) break
+      if (added === 0) break
+      await page.waitForTimeout(800)
+    }
+
+    return out.slice(0, topN)
+  } finally {
+    await browser.close()
+  }
+}
+
+// ── 단일 드라마 deep crawl (lazy 분석용) ─────────────────────
+// /shows/top 페이지에서 미리 추출한 meta를 받아 리뷰 + comments만 보강.
+export async function crawlMdlSingleDramaDeep(
+  meta: Pick<MdlDrama, 'slug' | 'title' | 'url' | 'rating' | 'posterUrl' | 'episodes' | 'year' | 'description'>,
+  options: { reviewsMax?: number; commentsMax?: number } = {}
+): Promise<MdlDrama> {
+  const { reviewsMax = 10, commentsMax = 30 } = options
+  const browser: Browser = await chromium.launch({ headless: true })
+  try {
+    const context = await browser.newContext({
+      userAgent: UA,
+      viewport: { width: 1280, height: 720 },
+      locale: 'en-US',
+    })
+    const page = await context.newPage()
+
+    console.log(`[MDL-single] ${meta.slug} 리뷰 수집 (max ${reviewsMax})...`)
+    const reviewResult = await fetchDramaReviews(page, meta.url, reviewsMax)
+    let comments: import('../types/index.js').MdlComment[] = []
+    if (commentsMax > 0) {
+      try {
+        comments = await fetchDramaComments(page, meta.url, commentsMax)
+      } catch (e) {
+        console.warn(`  [MDL-single] comments 실패:`, (e as Error).message)
+      }
+    }
+    console.log(`[MDL-single] ${meta.title}: 리뷰 ${reviewResult.reviews.length}개 · 코멘트 ${comments.length}개`)
+
+    return {
+      ...meta,
+      reviews: reviewResult.reviews,
+      comments,
+      nativeTitle: reviewResult.nativeTitle,
+    }
+  } finally {
+    await browser.close()
+  }
+}
+
 export async function crawlMdlTopAiring(
-  options: { topN?: number; reviewsPerDrama?: number } = {}
+  options: { topN?: number; reviewsPerDrama?: number; commentsPerDrama?: number } = {}
 ): Promise<MdlDrama[]> {
-  const { topN = 5, reviewsPerDrama = 5 } = options
+  const { topN = 5, reviewsPerDrama = 5, commentsPerDrama = 30 } = options
 
   const browser: Browser = await chromium.launch({ headless: true })
   const dramas: MdlDrama[] = []
@@ -315,13 +495,17 @@ export async function crawlMdlTopAiring(
       try {
         console.log(`  [MDL] r/${m.slug} 리뷰 수집 중...`)
         const result = await fetchDramaReviews(page, m.url, reviewsPerDrama)
-        console.log(`  [MDL] ${m.title}: 리뷰 ${result.reviews.length}개${result.nativeTitle ? ` · 원제 "${result.nativeTitle}"` : ''}`)
-        dramas.push({ ...m, reviews: result.reviews, nativeTitle: result.nativeTitle } as MdlDrama)
+        let comments: import('../types/index.js').MdlComment[] = []
+        if (commentsPerDrama > 0) {
+          comments = await fetchDramaComments(page, m.url, commentsPerDrama)
+        }
+        console.log(`  [MDL] ${m.title}: 리뷰 ${result.reviews.length}개 · 코멘트 ${comments.length}개${result.nativeTitle ? ` · 원제 "${result.nativeTitle}"` : ''}`)
+        dramas.push({ ...m, reviews: result.reviews, comments, nativeTitle: result.nativeTitle } as MdlDrama)
         // rate-limit 보호
         await page.waitForTimeout(800)
       } catch (e) {
         console.warn(`  [MDL] ${m.title} 리뷰 실패:`, (e as Error).message)
-        dramas.push({ ...m, reviews: [] } as MdlDrama)
+        dramas.push({ ...m, reviews: [], comments: [] } as MdlDrama)
       }
     }
   } finally {

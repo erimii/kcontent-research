@@ -191,6 +191,58 @@ const ISSUE_TEMPLATES: IssueTemplate[] = [
       /\b(korean culture|learning korean|hangul|tradition|traditions|cuisine)\b/i,
     ],
   },
+  {
+    key: 'cultural_difference',
+    label: '문화 차이 (행동·예절·커뮤니케이션)',
+    description: '한국식 행동·예절·표현 방식이 외국 시청자에게 낯설게 보이는 지점',
+    context: '존댓말, 위계, 표현 절제 등 한국 문화 코드가 글로벌 시청자에게 충격·호기심 유발',
+    triggers: [
+      /\b(weird|strange|odd|confusing|don'?t understand)\b[\s\S]{0,50}\b(korean|culture|behavior|behaviour|custom)\b/i,
+      /\b(in (?:my )?country|in the (?:us|usa|west)|western|american)\b[\s\S]{0,60}\b(would|wouldn'?t|never|always)\b/i,
+      /\b(why do (?:they|koreans?)|why does she|why does he)\b/i,
+      /\b(honorific|honorifics|formal speech|banmal|jondae|hierarchy|age gap)\b/i,
+      /\b(bowing|formality|etiquette|respect|elders?)\b/i,
+    ],
+    needsContrast: false,
+  },
+  {
+    key: 'unrealistic_scene',
+    label: '비현실적인 연출·장면 지적',
+    description: '캐릭터 행동·상황 설정이 현실과 동떨어졌다는 의견',
+    context: '실생활 디테일 결여는 글로벌 시청자 몰입을 깨는 핵심 이슈',
+    triggers: [
+      /\b(unrealistic|not realistic|so fake|too perfect|never happens? in real life)\b/i,
+      /\b(cliche|clich[eé]d?|trope|tropey)\b/i,
+      /\b(no one (?:actually )?does that|that doesn'?t happen|wouldn'?t happen)\b/i,
+      /\b(suspend (?:my )?disbelief|over the top|exaggerated)\b/i,
+    ],
+    needsContrast: false,
+  },
+  {
+    key: 'lifestyle_details',
+    label: '생활 디테일 (옷·집·일상)',
+    description: '의상·인테리어·일상 행동 등 작은 디테일에 대한 관찰',
+    context: '한국 일상의 시각적 디테일은 글로벌 시청자에게 정보·매력 동시 제공',
+    triggers: [
+      /\b(outfit|outfits|wardrobe|fashion|style|styling)\b/i,
+      /\b(apartment|house|interior|kitchen|bedroom|set design)\b/i,
+      /\b(food|eating|drinking|coffee|cafe|cafes|restaurant)\b[\s\S]{0,40}\b(scene|always|never|finish|leave)\b/i,
+      /\b(don'?t finish|never finish|leaving food|barely eat)\b/i,
+    ],
+    needsContrast: false,
+  },
+  {
+    key: 'ppl_product',
+    label: 'PPL·제품 노출 평가',
+    description: '드라마 내 간접광고·브랜드 노출의 자연스러움/거슬림에 대한 평가',
+    context: 'K드라마 PPL은 수익 모델이지만 과도하면 몰입 저해 요소',
+    triggers: [
+      /\b(ppl|product placement|sponsor|sponsored|advertising|advertisement)\b/i,
+      /\b(subway|samsung|chicken|coffee brand)\b[\s\S]{0,40}\b(scene|placement|obvious|forced)\b/i,
+      /\b(too many ads|so many ads|obvious sponsor)\b/i,
+    ],
+    needsContrast: false,
+  },
 ]
 
 const ISSUE_REGEX_CACHE = new Map<string, RegExp>()
@@ -464,12 +516,11 @@ function analyzeCommentDebates(comments: RedditComment[]): DebateTopic[] {
     })
   }
   templateBased.sort((a, b) => b.count - a.count)
-  const topTemplates = templateBased.slice(0, 3)
 
-  // 부족분은 동적 n-gram 클러스터링으로 채움
-  const dynamic = dynamicDebatesFromComments(comments, topTemplates, 3)
-
-  return [...topTemplates, ...dynamic].slice(0, 3)
+  // 단어 빈도 기반 동적 fallback 제거 (2026-05-04):
+  // "every", "thing" 같은 일반 단어로 만들어진 의미 없는 클러스터 생성을 차단.
+  // 의미 기반 ISSUE_TEMPLATES만 사용 — 못 채우면 적게 반환 (3개 미만 OK).
+  return templateBased.slice(0, 3)
 }
 
 // ── 자연어 감정 요약 ──────────────────────────────────────────

@@ -700,6 +700,8 @@ app.get('/api/stats', (_req, res) => {
 // ============================================================
 const MDL_CACHE_KEY = 'top_airing_v1'
 const MDL_CACHE_TTL_SEC = 6 * 3600
+const MDL_TOP_ALLTIME_KEY = 'mdl_popular_ranking_v1'
+const MDL_TOP_ALLTIME_TTL_SEC = 30 * 24 * 3600
 // MDL Popular/TopKorea 제목 사전 (사전 매칭 자동 갱신용) — TTL 24h, 자주 안 바뀜
 const MDL_POPULAR_CACHE_KEY = 'mdl_popular_titles_v1'
 const MDL_POPULAR_CACHE_TTL_SEC = 24 * 3600
@@ -825,6 +827,177 @@ app.post('/api/mdl/popular/refresh', async (req, res) => {
   } catch (e) {
     console.error('[MDL-popular] 오류:', e)
     saveCrawlLog('mdl-popular', 0, 'failed', String(e))
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+// ============================================================
+// MDL 역대 누적 평점 TOP K-드라마 (정적 랭킹, TTL 7일)
+// - GET: 캐시 조회
+// - POST: 강제 새로고침 (Playwright /shows/top 페이지 순회)
+// ============================================================
+type TopAllTimeItem = {
+  slug: string
+  title: string
+  url: string
+  rating: number
+  posterUrl?: string
+  episodes?: number
+  year?: number
+  description?: string
+}
+type TopAllTimePayload = { items: TopAllTimeItem[] }
+
+app.get('/api/mdl/top-ranking', (_req, res) => {
+  try {
+    const cached = getMdlCache<TopAllTimePayload>(MDL_TOP_ALLTIME_KEY)
+    if (!cached) return res.json({ ok: true, items: [], cached: false })
+    res.json({
+      ok: true,
+      items: cached.data.items,
+      count: cached.data.items.length,
+      cached: true,
+      fetchedAt: cached.fetchedAt,
+      expiresAt: cached.expiresAt,
+    })
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+app.post('/api/mdl/top-ranking/refresh', async (req, res) => {
+  try {
+    const force = req.body?.force === true
+    if (!force) {
+      const cached = getMdlCache<TopAllTimePayload>(MDL_TOP_ALLTIME_KEY)
+      if (cached) {
+        return res.json({
+          ok: true,
+          items: cached.data.items,
+          count: cached.data.items.length,
+          cached: true,
+          fetchedAt: cached.fetchedAt,
+          expiresAt: cached.expiresAt,
+        })
+      }
+    }
+
+    console.log('[MDL-popular-rank] 새 크롤링 시작...')
+    const t0 = Date.now()
+    const { crawlMdlPopularRanking } = await import('./crawlers/mdl.js')
+    const items = await crawlMdlPopularRanking(50)
+    saveCrawlLog('mdl-popular-rank', items.length, items.length > 0 ? 'success' : 'failed')
+    if (items.length === 0) {
+      return res.status(503).json({ ok: false, error: 'MDL Popular 크롤링 실패 (0개)' })
+    }
+    const ttl = setMdlCache(MDL_TOP_ALLTIME_KEY, { items }, MDL_TOP_ALLTIME_TTL_SEC)
+    console.log(`[MDL-popular-rank] 완료 (${((Date.now() - t0) / 1000).toFixed(1)}s) - ${items.length}개`)
+
+    res.json({
+      ok: true,
+      items,
+      count: items.length,
+      cached: false,
+      fetchedAt: ttl.fetchedAt,
+      expiresAt: ttl.expiresAt,
+    })
+  } catch (e) {
+    console.error('[MDL-popular-rank] 오류:', e)
+    saveCrawlLog('mdl-popular-rank', 0, 'failed', String(e))
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+// ============================================================
+// MDL 단일 드라마 lazy 분석 (역대 명작 페이지에서 행 클릭 시)
+// - GET /api/mdl/drama/:slug → 캐시 조회
+// - POST /api/mdl/drama/:slug/analyze → 크롤 + 분석 + 캐시 저장 (TTL 30일)
+//   meta는 mdl_top_alltime_v1 캐시에서 자동 조회
+// ============================================================
+const MDL_DRAMA_CACHE_TTL_SEC = 30 * 24 * 3600
+
+function dramaCacheKey(slug: string): string {
+  return `mdl_drama_${slug}_v1`
+}
+
+app.get('/api/mdl/drama/:slug', (req, res) => {
+  try {
+    const slug = String(req.params.slug || '').trim()
+    if (!slug) return res.status(400).json({ ok: false, error: 'slug 누락' })
+    const cached = getMdlCache<{ analysis: any }>(dramaCacheKey(slug))
+    if (!cached) return res.json({ ok: true, analysis: null, cached: false })
+    res.json({
+      ok: true,
+      analysis: cached.data.analysis,
+      cached: true,
+      fetchedAt: cached.fetchedAt,
+      expiresAt: cached.expiresAt,
+    })
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+app.post('/api/mdl/drama/:slug/analyze', async (req, res) => {
+  try {
+    const slug = String(req.params.slug || '').trim()
+    if (!slug) return res.status(400).json({ ok: false, error: 'slug 누락' })
+
+    const force = req.body?.force === true
+    if (!force) {
+      const cached = getMdlCache<{ analysis: any }>(dramaCacheKey(slug))
+      if (cached) {
+        return res.json({
+          ok: true,
+          analysis: cached.data.analysis,
+          cached: true,
+          fetchedAt: cached.fetchedAt,
+          expiresAt: cached.expiresAt,
+        })
+      }
+    }
+
+    // top_alltime 캐시에서 meta 조회
+    const top = getMdlCache<TopAllTimePayload>(MDL_TOP_ALLTIME_KEY)
+    if (!top) {
+      return res.status(409).json({ ok: false, error: '랭킹 캐시 없음 — 명작 랭킹 페이지를 먼저 로드하세요' })
+    }
+    const meta = top.data.items.find((x) => x.slug === slug)
+    if (!meta) return res.status(404).json({ ok: false, error: `slug ${slug} not in top ranking cache` })
+
+    console.log(`[MDL-drama] ${slug} 분석 시작...`)
+    const t0 = Date.now()
+    const { crawlMdlSingleDramaDeep } = await import('./crawlers/mdl.js')
+    const drama = await crawlMdlSingleDramaDeep(meta, { reviewsMax: 10, commentsMax: 30 })
+    saveCrawlLog('mdl-drama', drama.reviews.length, drama.reviews.length > 0 ? 'success' : 'failed')
+
+    if (drama.reviews.length === 0) {
+      return res.status(503).json({ ok: false, error: `${slug} 리뷰 0개 (Cloudflare 차단 가능성)` })
+    }
+
+    const summary = analyzeMdlDramas([drama])
+    // 대표 리뷰 한국어 번역 (Groq, translation_cache 자동 활용)
+    try {
+      const { translateMdlSummaryInPlace } = await import('./pipeline/translateMdl.js')
+      await translateMdlSummaryInPlace(summary)
+    } catch (e) {
+      console.warn('[MDL-drama] 번역 실패 (영문 유지):', (e as Error).message)
+    }
+    // 단일 분석 결과 추출
+    const analysis = summary.dramas[0]
+    const ttl = setMdlCache(dramaCacheKey(slug), { analysis }, MDL_DRAMA_CACHE_TTL_SEC)
+    console.log(`[MDL-drama] ${slug} 완료 (${((Date.now() - t0) / 1000).toFixed(1)}s)`)
+
+    res.json({
+      ok: true,
+      analysis,
+      cached: false,
+      fetchedAt: ttl.fetchedAt,
+      expiresAt: ttl.expiresAt,
+    })
+  } catch (e) {
+    console.error('[MDL-drama] 오류:', e)
+    saveCrawlLog('mdl-drama', 0, 'failed', String(e))
     res.status(500).json({ ok: false, error: String(e) })
   }
 })

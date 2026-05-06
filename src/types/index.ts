@@ -251,6 +251,15 @@ export interface MdlReview {
   bodyKo?: string                // 한국어 번역 (Groq AI)
 }
 
+export interface MdlComment {
+  id: string                     // post-XXXXXX (DOM id)
+  username: string
+  body: string
+  likes: number                  // btn-like 카운트
+  daysAgo?: string               // "3 minutes ago" / "an hour ago"
+  isReply: boolean               // tl-container(threadline) 존재 시 true
+}
+
 export interface MdlDrama {
   slug: string
   title: string
@@ -262,6 +271,7 @@ export interface MdlDrama {
   year?: number
   description?: string
   reviews: MdlReview[]
+  comments?: MdlComment[]        // 작품 메인 페이지의 Comments 섹션 (시청자 raw 반응)
 }
 
 export interface MdlDramaAnalysis {

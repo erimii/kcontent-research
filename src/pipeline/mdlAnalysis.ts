@@ -19,7 +19,7 @@ import { deepAnalyzePosts } from './deepAnalysis.js'
 // MdlReview → RedditComment 변환 (deepAnalysis 재활용용)
 function reviewToComment(r: MdlReview, idx: number): RedditComment {
   return {
-    id: `mdl_${idx}_${r.username}`,
+    id: `mdl_rev_${idx}_${r.username}`,
     body: [r.title, r.body].filter(Boolean).join(' — '),
     score: r.helpful,
     depth: 0,
@@ -27,8 +27,16 @@ function reviewToComment(r: MdlReview, idx: number): RedditComment {
 }
 
 // 드라마를 RedditPost 셰입으로 래핑하면 deepAnalyzePosts(post[]).deepAnalysis가 재활용됨
+// 리뷰(긴 평론) + Comments(시청자 raw 반응) 모두 동일 풀로 합산 → 클러스터링 표본 ↑
 function dramaToFakePost(d: MdlDrama): RedditPost {
-  const comments = d.reviews.map((r, i) => reviewToComment(r, i))
+  const reviewComments = d.reviews.map((r, i) => reviewToComment(r, i))
+  const liveComments: RedditComment[] = (d.comments || []).map((c, i) => ({
+    id: `mdl_cmt_${i}_${c.username}`,
+    body: c.body,
+    score: c.likes,
+    depth: c.isReply ? 1 : 0,
+  }))
+  const comments = [...reviewComments, ...liveComments]
   return {
     id: d.slug,
     subreddit: 'mdl',
@@ -36,7 +44,7 @@ function dramaToFakePost(d: MdlDrama): RedditPost {
     selftext: d.description || '',
     url: d.url,
     score: Math.round(d.rating * 10),
-    commentCount: d.reviews.length,
+    commentCount: d.reviews.length + (d.comments?.length || 0),
     createdAt: new Date().toISOString(),
     comments,
     flair: d.year ? `${d.year}` : undefined,

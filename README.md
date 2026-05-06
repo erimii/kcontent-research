@@ -200,7 +200,7 @@ TOP5 포스트마다:
 
 ## 대시보드 화면
 
-좌측 사이드바 메뉴 — **대시보드 / 콘텐츠 랭킹 / Reddit 포스트 / 크롤링 / 스케줄 / 아카이브 / 검색 / 📖 도움말**.
+좌측 사이드바 메뉴 — **대시보드 / 콘텐츠 랭킹 / 🏅 명작 랭킹 / Reddit 포스트 / 크롤링 / 스케줄 / 아카이브 / 검색 / 📖 도움말**.
 
 > 처음 사용하시는 분은 사이드바의 **📖 도움말** 메뉴 또는 [docs/dashboard-guide.md](docs/dashboard-guide.md) 를 먼저 보시면 각 섹션이 어떤 데이터를 어떤 기준으로 보여주는지 파악할 수 있습니다.
 
@@ -231,6 +231,25 @@ TOP5 포스트마다:
 
 페이지 진입 시 MDL/YouTube 캐시 prefetch 자동 발동, 비동기 완료 후 즉시 재렌더.
 
+### 명작 랭킹 페이지 (MDL 글로벌 인기 K드라마)
+
+별도 메뉴로 분리된 정적 데이터 참조 페이지. `https://mydramalist.com/shows/popular`의 글로벌 인기 K드라마 TOP 50을 표 형태로 제공.
+
+- **데이터 소스**: Playwright로 `/shows/popular` 1~5페이지 순회 → Korean Drama 필터링 → TOP 50 ([src/crawlers/mdl.ts](src/crawlers/mdl.ts) `crawlMdlPopularRanking`)
+- **순위 기준**: MyDramaList 공식 FAQ — *"리스트 추가 수 · 시청자 평점 · 댓글 수 · 추천 수 · 리뷰를 종합한 인기 알고리즘"*. 페이지 헤더 hover 시 영문 원문 툴팁 표시
+- **표 컬럼**: 순위 / 포스터 / 제목(원문 MDL 링크) / 연도 / 에피소드 / 평점 / 펼침 화살표
+- **🆕 행 클릭 → Lazy 분석 펼침**: 각 작품 행 클릭 시 백엔드가 해당 작품의 리뷰 10개 + 댓글 30개를 크롤(~17초) → `analyzeMdlDramas` 단일 호출로 분석 → 결과 패널 표시:
+  - 인기 사유 자연어
+  - 평점 분포 막대 (9-10 / 7-9 / 5-7 / <5 색상별)
+  - 댓글 감정 막대 + 평가 분열 ⚡ 배지
+  - 토픽 클러스터 뱃지 (👍/👎/💬)
+  - 대표 리뷰 helpful 순 2개 — **한국어 번역 우선 표시 + [원문 보기] 토글**
+  - 분석 완료된 작품은 제목 옆에 📊 마크
+- **캐시**:
+  - 랭킹 50개: `mdl_popular_ranking_v1` (TTL **30일** — 사용자 요청에 따라 한 달마다 자동 갱신)
+  - 단일 작품 분석: `mdl_drama_<slug>_v1` (TTL 30일, 영구 누적 — slug별 키)
+  - 리뷰 번역: `translation_cache` 테이블 (영구, 텍스트 해시 기반)
+
 ### Reddit 포스트 페이지
 
 상단에 **TOP5 딥 분석** 풀 카드, 그 아래 서브레딧 필터 + 전체 포스트 리스트(클릭 시 원문 이동).
@@ -258,6 +277,10 @@ TOP5 포스트마다:
 | POST | `/api/mdl/refresh` | MDL Playwright 크롤링 + 분석 + 캐시 저장 (`{force:true}` 시 캐시 무시) |
 | GET | `/api/mdl/popular` | MDL Popular/TopKorea 제목 사전 캐시 조회 (사전 매칭 자동 갱신용) |
 | POST | `/api/mdl/popular/refresh` | Popular + TopKorea 페이지 크롤 → 제목 합집합 ~100개 (TTL 24h) |
+| GET | `/api/mdl/top-ranking` | 명작 랭킹 (MDL Popular TOP 50 K드라마) 캐시 조회 |
+| POST | `/api/mdl/top-ranking/refresh` | `/shows/popular` 5페이지 크롤 → TOP 50 (TTL 30일, `{force:true}` 시 캐시 무시) |
+| GET | `/api/mdl/drama/:slug` | 단일 작품 lazy 분석 캐시 조회 |
+| POST | `/api/mdl/drama/:slug/analyze` | 단일 작품 리뷰 10 + 댓글 30 크롤 → `analyzeMdlDramas` + 한국어 번역 → 캐시 (TTL 30일) |
 | GET | `/api/gtrends` | Google Trends 캐시 조회 |
 | POST | `/api/gtrends/refresh` | GTrends RSS 수집 + 카테고리 분류 + K-콘텐츠 비교 인사이트 (`{force:true}` 시 캐시 무시) |
 | GET | `/api/youtube` | YouTube 캐시 조회 |
@@ -324,8 +347,11 @@ data/k-content.db
 ├── crawl_logs        - 크롤링 실행 이력 (Reddit + MDL)
 └── mdl_cache         - MDL Top Airing (key='top_airing_v1', TTL 6h)
                       + MDL Popular/TopKorea 제목 사전 (key='mdl_popular_titles_v1', TTL 24h)
+                      + 🏅 명작 랭킹 50개 (key='mdl_popular_ranking_v1', TTL 30일)
+                      + 🏅 단일 작품 lazy 분석 (key='mdl_drama_<slug>_v1', TTL 30일, 영구 누적)
                       + GTrends 북미 (key='us_daily_v1', TTL 1h)
                       + YouTube SNS 버즈 (key='youtube_buzz_v1', TTL 3h)
+└── translation_cache - 영문 → 한국어 번역 (Groq, 텍스트 해시 키, 영구)
 ```
 
 ---

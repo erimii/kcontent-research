@@ -66,6 +66,9 @@ const state = {
   schedule: null,
   mdlSummary: null,
   mdlLoading: false,
+  topRanking: null,
+  topRankingLoading: false,
+  topRankingExpanded: {},   // { slug: { loading, analysis, error } }
   gtrendsSummary: null,
   gtrendsLoading: false,
   youtubeSummary: null,
@@ -218,32 +221,38 @@ function renderContentInsights(r) {
   // ── 작품·배우 빈도 표 ──
   const freqGrid = c ? `
     <div style="padding:14px 18px;display:grid;grid-template-columns:1fr 1fr;gap:18px;border-bottom:1px solid rgba(255,255,255,0.06)">
-      <div>
-        <div style="font-size:13px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:6px">📺 작품 TOP</div>
-        ${(c.topContents || []).slice(0,8).map(it => {
+      <div style="min-width:0;overflow:hidden">
+        <div style="font-size:15px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:8px;letter-spacing:0.3px">📺 작품 TOP</div>
+        ${(c.topContents || []).slice(0,8).map((it, i) => {
           const key = String(it.title).toLowerCase().trim().replace(/\s+/g, ' ')
           let ko = (window.K_DRAMA_TITLE_MAP || {})[key]
           if (!ko && state.mdlSummary?.dramas) {
             const m = state.mdlSummary.dramas.find(d => (d.drama?.title || '').toLowerCase().trim().replace(/\s+/g, ' ') === key)
             if (m?.drama?.nativeTitle) ko = m.drama.nativeTitle
           }
+          const rank = i + 1
+          const rankColor = rank === 1 ? '#fbbf24' : rank === 2 ? '#cbd5e1' : rank === 3 ? '#f97316' : 'var(--text-muted)'
           return `
-          <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);gap:8px">
-            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${escHtml(it.title)}${ko ? ` <span style="color:var(--text-muted);font-size:11px">(${escHtml(ko)})</span>` : ''}</span>
+          <div style="display:flex;align-items:center;font-size:13px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);gap:10px">
+            <span style="flex-shrink:0;width:22px;font-weight:800;color:${rankColor};font-size:13px;text-align:center">${rank}</span>
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${escHtml(it.title)}${ko ? ` <span style="color:var(--text-muted);font-size:12px">(${escHtml(ko)})</span>` : ''}</span>
             <span style="color:var(--text-muted);flex-shrink:0">${it.count}</span>
           </div>`
-        }).join('') || '<div style="font-size:11px;color:var(--text-muted)">없음</div>'}
+        }).join('') || '<div style="font-size:12px;color:var(--text-muted)">없음</div>'}
       </div>
-      <div>
-        <div style="font-size:13px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:6px">🌟 배우 TOP</div>
-        ${(c.topActors || []).length ? c.topActors.slice(0,8).map(a => {
+      <div style="min-width:0;overflow:hidden">
+        <div style="font-size:15px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:8px;letter-spacing:0.3px">🌟 배우 TOP</div>
+        ${(c.topActors || []).length ? c.topActors.slice(0,8).map((a, i) => {
           const ko = (window.K_ACTOR_NAME_MAP || {})[String(a.name).toLowerCase().trim().replace(/\s+/g, ' ')]
+          const rank = i + 1
+          const rankColor = rank === 1 ? '#fbbf24' : rank === 2 ? '#cbd5e1' : rank === 3 ? '#f97316' : 'var(--text-muted)'
           return `
-          <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);gap:8px">
-            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${escHtml(a.name)}${ko ? ` <span style="color:var(--text-muted);font-size:11px">(${escHtml(ko)})</span>` : ''}</span>
+          <div style="display:flex;align-items:center;font-size:13px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);gap:10px">
+            <span style="flex-shrink:0;width:22px;font-weight:800;color:${rankColor};font-size:13px;text-align:center">${rank}</span>
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${escHtml(a.name)}${ko ? ` <span style="color:var(--text-muted);font-size:12px">(${escHtml(ko)})</span>` : ''}</span>
             <span style="color:var(--text-muted);flex-shrink:0">${a.count}</span>
           </div>`
-        }).join('') : '<div style="font-size:11px;color:var(--text-muted)">없음</div>'}
+        }).join('') : '<div style="font-size:12px;color:var(--text-muted)">없음</div>'}
       </div>
     </div>` : ''
 
@@ -256,33 +265,58 @@ function renderContentInsights(r) {
       ${collapsibleSection('kr-insights', list, 1, ins => {
         const m = KR_INSIGHT_META[ins.category] || { icon: '✨', label: '인사이트', color: '#888' }
         const hasStructured = !!(ins.observation && ins.interpretation && ins.action)
+
+        // 헤드라인: observation 그대로 (이미 1줄로 짧음). 잘림 방지.
+        const extractHeadline = (text) => (text || '').replace(/\.$/, '')
+
+        // action을 문장 단위로 쪼개 bullets로 변환 (최대 3개)
+        const splitActions = (text) => {
+          if (!text) return []
+          return text
+            .split(/(?<=[.!?])\s+(?=[가-힣A-Z"„])/g)
+            .map(s => s.trim().replace(/\.$/, ''))
+            .filter(s => s.length > 0)
+            .slice(0, 3)
+        }
+
         const sections = hasStructured
-          ? `
-            <div style="margin-bottom:10px">
-              <div style="font-size:14px;color:${m.color};font-weight:700;margin-bottom:4px;letter-spacing:0.2px">📌 핵심 인사이트</div>
-              <div style="font-size:13.5px;line-height:1.6;color:var(--text-primary)">${escHtml(ins.observation)}</div>
-            </div>
-            <div style="margin-bottom:10px">
-              <div style="font-size:14px;color:var(--text-muted);font-weight:700;margin-bottom:4px;letter-spacing:0.2px">🔍 해석</div>
-              <div style="font-size:13.5px;line-height:1.6;color:var(--text-secondary,#d4d6e0)">${escHtml(ins.interpretation)}</div>
-            </div>
-            <div style="background:rgba(255,255,255,0.04);border-left:2px solid ${m.color};border-radius:5px;padding:10px 12px">
-              <div style="font-size:14px;color:${m.color};font-weight:700;margin-bottom:4px;letter-spacing:0.2px">💡 액션 제안 (Claude의 의견)</div>
-              <div style="font-size:13.5px;line-height:1.65;color:var(--text-primary)">${escHtml(ins.action)}</div>
-            </div>
-          `
+          ? (() => {
+              const headline = extractHeadline(ins.observation)
+              const actions = splitActions(ins.action)
+              return `
+                <div style="margin-bottom:10px">
+                  <div style="font-size:17px;line-height:1.35;color:var(--text-primary);font-weight:700;letter-spacing:-0.2px">
+                    ${m.icon} ${escHtml(headline)}
+                  </div>
+                </div>
+                ${(ins.evidence && ins.evidence.length) ? `
+                  <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">
+                    ${ins.evidence.slice(0,3).map(e => `<span style="font-size:10.5px;padding:3px 8px;background:rgba(255,255,255,0.06);border-radius:10px;color:var(--text-muted);font-weight:500">${escHtml(e)}</span>`).join('')}
+                  </div>` : ''}
+                <div style="font-size:12.5px;line-height:1.55;color:var(--text-muted);margin-bottom:12px;padding-left:10px;border-left:2px solid ${m.color}33">
+                  → ${escHtml(ins.interpretation)}
+                </div>
+                <div style="background:rgba(255,255,255,0.035);border-radius:6px;padding:10px 12px">
+                  <div style="font-size:11px;color:${m.color};font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:7px">
+                    💡 액션 (Claude의 의견)
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:6px">
+                    ${actions.map((a, i) => `
+                      <div style="display:flex;gap:8px;font-size:12.5px;line-height:1.5;color:var(--text-primary)">
+                        <span style="color:${m.color};font-weight:700;flex-shrink:0">${i+1}.</span>
+                        <span>${escHtml(a)}</span>
+                      </div>`).join('')}
+                  </div>
+                </div>
+              `
+            })()
           : `<div style="font-size:14px;line-height:1.55;color:var(--text-primary)">${escHtml(ins.text)}</div>`
         return `
           <div style="padding:14px 16px;background:rgba(255,255,255,0.04);border-radius:8px;border-left:3px solid ${m.color};margin-bottom:12px">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.06)">
-              <span style="font-size:18px">${m.icon}</span>
-              <span style="font-size:12px;color:${m.color};text-transform:uppercase;font-weight:700;letter-spacing:0.4px">${m.label}</span>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+              <span style="font-size:11px;color:${m.color};text-transform:uppercase;font-weight:700;letter-spacing:0.4px">${m.label}</span>
             </div>
             ${sections}
-            ${(ins.evidence && ins.evidence.length) ? `
-              <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px">
-                ${ins.evidence.slice(0,4).map(e => `<span class="insight-chip" style="font-size:10px">${escHtml(e)}</span>`).join('')}
-              </div>` : ''}
           </div>`
       })}
     </div>` : ''
@@ -628,11 +662,86 @@ function renderYoutubeCard(s) {
     ? `<span style="font-size:10px;color:var(--text-muted)">캐시 · ${ago}분 전</span>`
     : `<span style="font-size:10px;color:#10b981">방금 가져옴</span>`
 
+  // ── 데이터 도출 (행동 중심) ──────────────────────────────
+  const totalViews = (s.topVideos || []).reduce((acc, v) => acc + (v.views || 0), 0) || 1
+  const top = (s.topVideos || [])[0]
+  const topShare = top ? Math.round((top.views / totalViews) * 100) : 0
+  const officialStat = (s.channelTypeStats || []).find(c => c.channelType === 'official')
+  const officialPct = officialStat ? Math.round((officialStat.count / s.totalVideos) * 100) : 0
+  const realContentTypes = (s.contentTypeStats || []).filter(c => c.type !== 'other')
+  const topContent = realContentTypes[0]
+  const topContentViewShare = topContent ? Math.round((topContent.totalViews / ((s.contentTypeStats || []).reduce((a, c) => a + c.totalViews, 0) || 1)) * 100) : 0
+  const reactions = (s.reactionPatterns || [])
+  const emotionTotal = reactions.filter(r => r.category === 'emotion').reduce((a, r) => a + r.count, 0)
+  const totalReactions = reactions.reduce((a, r) => a + r.count, 0) || 1
+  const emotionPct = Math.round((emotionTotal / totalReactions) * 100)
+
+  // ── Top 3 현상 (1줄씩) ──────────────────────────────────
+  const top3 = []
+  if (top) {
+    top3.push({
+      icon: '🎬',
+      text: `<strong>"${escHtml(top.title)}"</strong>이 ${fmtViews(top.views)} 조회수로 <strong>전체의 ${topShare}%</strong> 단독 견인`,
+      color: '#ef4444',
+    })
+  }
+  if (officialStat && officialPct >= 50) {
+    top3.push({
+      icon: '📺',
+      text: `<strong>공식 채널이 ${officialStat.count}개/${s.totalVideos}개 (${officialPct}%)</strong> — 마케팅 주도형 확산 흐름`,
+      color: '#10b981',
+    })
+  }
+  if (topContent && topContent.count >= 2) {
+    top3.push({
+      icon: '🎭',
+      text: `<strong>${escHtml(topContent.label)} ${topContent.count}건</strong>이 조회수의 <strong>${topContentViewShare}%</strong> 차지 — 팬덤 핵심 컨텍스트`,
+      color: '#a78bfa',
+    })
+  }
+  if (top3.length < 3 && reactions[0]) {
+    top3.push({
+      icon: '💬',
+      text: `댓글에서 <strong>"${escHtml(reactions[0].label)}"</strong> ${reactions[0].count}건이 가장 두드러짐`,
+      color: YT_REACTION_COLOR[reactions[0].category] || '#6b7280',
+    })
+  }
+
+  // ── 핵심 인사이트 (1줄 합성) ────────────────────────────
+  const coreInsight = (() => {
+    const parts = []
+    if (officialPct >= 70) parts.push('공식 마케팅 주도')
+    else if (officialPct >= 40) parts.push('공식·인플루언서 병행')
+    if (topContent?.type === 'scene') parts.push('명장면 클립 중심')
+    else if (topContent?.type === 'actor') parts.push('배우 중심')
+    else if (topContent?.type === 'edit') parts.push('팬편집 중심')
+    if (emotionPct >= 50) parts.push('감정 몰입 단계')
+    else if (emotionPct >= 30) parts.push('감정·정보 혼재')
+    return parts.length ? parts.join(' · ') + ' SNS 버즈 사이클' : 'SNS 버즈 형성 중'
+  })()
+
+  // ── 액션 제안 (3개, 기능 수준) ──────────────────────────
+  const actions = []
+  if (top) {
+    actions.push(`최상위 영상 "${(top.title || '').slice(0, 28)}…" 명장면 클립 → 핵심 대사 학습 카드 자동 매칭, 앱 첫 화면 24h 노출`)
+  }
+  if (officialPct >= 60) {
+    actions.push(`공식 채널(${officialStat?.label || ''}) 신작 트레일러 알림 위젯 신설 — 새 영상 게시 시 즉시 푸시 + 해당 작품 어휘 코스 자동 매핑`)
+  }
+  if (emotionPct >= 40 || (reactions[0] && /감정|이모지|중독|폭발/.test(reactions[0].label))) {
+    actions.push(`감정 표현 학습 모듈 출시 — "OMG / 명대사 / reaction" 자주 쓰이는 감탄·감정 표현 30선을 SRS 카드로`)
+  }
+  if (actions.length < 3 && topContent?.type === 'scene') {
+    actions.push(`명장면 클립 학습 코스 양산 — 30~60초 클립 + 핵심 대사 5개 + 문화 노트 1개의 마이크로 코스 체계로 회차마다 즉시 배포`)
+  }
+  while (actions.length < 1) actions.push('데이터 표본이 더 누적되면 액션 제안 자동 생성')
+
   return `
     <div class="card" style="border-left:3px solid #ef4444">
       <div class="card-header">
-        <div class="card-title"><i class="fab fa-youtube" style="color:#ef4444"></i> SNS 버즈 분석 (YouTube · ${s.totalVideos}개 영상 · 댓글 ${s.totalComments}개)</div>
+        <div class="card-title"><i class="fab fa-youtube" style="color:#ef4444"></i> SNS 버즈 분석 (YouTube)</div>
         <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:10px;color:var(--text-muted)">${s.totalVideos}개 영상 · 댓글 ${s.totalComments}개</span>
           ${cacheLabel}
           <button class="btn btn-outline" style="padding:3px 10px;font-size:11px" onclick="loadYoutubeSummary(true)">
             <i class="fas fa-sync-alt"></i> 새로고침
@@ -641,76 +750,114 @@ function renderYoutubeCard(s) {
       </div>
       <div class="card-body" style="padding:0">
 
-        <!-- 한 줄 요약 + 인사이트 -->
-        <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.05);background:rgba(239,68,68,0.04)">
-          <div style="font-size:12px;line-height:1.6;color:var(--text-primary);margin-bottom:8px">${escHtml(s.oneLineSummary)}</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px"><strong style="color:#ef4444">🔄 버즈 흐름:</strong> ${escHtml(s.buzzInsight)}</div>
-          <div style="font-size:11px;color:var(--text-muted)"><strong style="color:#ef4444">📡 팬덤 → 외부 확산:</strong> ${escHtml(s.fandomFlowInsight)}</div>
-        </div>
-
-        <!-- 1. 인기 콘텐츠 TOP -->
-        <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.05)">
-          <div style="font-size:14px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:8px">① 인기 콘텐츠 TOP</div>
-          ${collapsibleSection('yt-top', s.topVideos, 2, (v) => `
-            <a href="https://www.youtube.com/watch?v=${escHtml(v.id)}" target="_blank" rel="noopener noreferrer"
-               style="display:flex;gap:10px;padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:4px;border-left:2px solid ${YT_CHANNEL_COLOR[v.channelType] || '#6b7280'};margin-bottom:5px;text-decoration:none;color:inherit">
-              ${v.thumbnail ? `<img src="${escHtml(v.thumbnail)}" style="width:80px;height:45px;object-fit:cover;border-radius:3px;flex-shrink:0">` : ''}
-              <div style="flex:1;min-width:0">
-                <div style="font-size:12px;font-weight:600;line-height:1.4;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${escHtml(v.title)}${YT_CHANNEL_BADGE[v.channelType] || ''}</div>
-                <div style="font-size:10px;color:var(--text-muted);margin-top:3px">
-                  <span style="color:${YT_CONTENT_COLOR[v.contentType] || '#6b7280'}">${v.contentType}</span>
-                  · ${escHtml(v.channel)}
-                  · 👁 ${fmtViews(v.views || 0)}${v.likes ? ' · 👍 ' + fmtViews(v.likes) : ''}
-                  ${v.publishedText ? ' · ' + escHtml(v.publishedText) : ''}
-                </div>
-              </div>
-            </a>`)}
-        </div>
-
-        <!-- 2. 채널 타입 + 콘텐츠 유형 분포 -->
-        <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.05)">
-          ${(s.channelTypeStats || []).length > 0 ? `
-            <div style="font-size:14px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:6px">② 채널 타입 분포</div>
-            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">
-              ${(s.channelTypeStats || []).map(c => `
-                <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:rgba(255,255,255,0.03);border-radius:14px;font-size:11px;border-left:3px solid ${YT_CHANNEL_COLOR[c.channelType] || '#6b7280'}">
-                  ${escHtml(c.label)} <strong>${c.count}</strong> <span style="color:var(--text-muted);font-size:10px">(${fmtViews(c.totalViews)} views)</span>
-                </span>`).join('')}
-            </div>` : ''}
-          <div style="font-size:14px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:6px">③ 콘텐츠 유형 분포</div>
-          <div style="display:flex;flex-wrap:wrap;gap:6px">
-            ${(s.contentTypeStats || []).map(c => `
-              <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:rgba(255,255,255,0.03);border-radius:14px;font-size:11px;border-left:3px solid ${YT_CONTENT_COLOR[c.type] || '#6b7280'}">
-                ${escHtml(c.label)} <strong>${c.count}</strong> <span style="color:var(--text-muted);font-size:10px">(${fmtViews(c.totalViews)} views)</span>
-              </span>`).join('')}
+        <!-- 🔥 지금 무슨 일이 일어나고 있나 (Top 3) -->
+        <div style="padding:16px 18px;border-bottom:1px solid rgba(255,255,255,0.05);background:rgba(239,68,68,0.04)">
+          <div style="font-size:12px;color:#ef4444;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">
+            🔥 지금 무슨 일이 일어나고 있나
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            ${top3.slice(0, 3).map((t, i) => `
+              <div style="display:flex;gap:10px;align-items:flex-start;font-size:13px;line-height:1.5;color:var(--text-primary)">
+                <span style="flex-shrink:0;font-size:16px">${t.icon}</span>
+                <span><span style="color:${t.color};font-weight:700;margin-right:4px">${i+1}.</span>${t.text}</span>
+              </div>`).join('')}
           </div>
         </div>
 
-        <!-- 3. 발화 phrase TOP -->
-        ${(s.topPhrases || []).length > 0 ? `
+        <!-- 💬 유저 행동 -->
+        ${reactions.length > 0 ? `
         <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.05)">
-          <div style="font-size:14px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:8px">④ 발화 내용 (제목·설명 반복)</div>
-          <div style="display:flex;flex-wrap:wrap;gap:5px">
-            ${s.topPhrases.slice(0, 15).map(p => `<span class="insight-chip" style="font-size:11px">${escHtml(p.phrase)} <strong>${p.count}</strong></span>`).join('')}
+          <div style="font-size:12px;color:#ef4444;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">
+            💬 유저가 가장 많이 한 행동
           </div>
-        </div>` : ''}
-
-        <!-- 4. 댓글 반응 패턴 -->
-        ${(s.reactionPatterns || []).length > 0 ? `
-        <div style="padding:14px 18px">
-          <div style="font-size:14px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:8px">⑤ 댓글 반응 패턴</div>
           <div style="display:flex;flex-direction:column;gap:6px">
-            ${s.reactionPatterns.map(rp => `
+            ${reactions.slice(0, 3).map(rp => `
               <div style="padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:4px;border-left:2px solid ${YT_REACTION_COLOR[rp.category] || '#6b7280'}">
                 <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">
-                  <span style="font-size:12px;font-weight:600">${escHtml(rp.label)}</span>
-                  <span style="font-size:10px;color:var(--text-muted)">${rp.count}건</span>
+                  <span style="font-size:13px;font-weight:600">${escHtml(rp.label)}</span>
+                  <span style="font-size:11px;color:${YT_REACTION_COLOR[rp.category] || '#6b7280'};font-weight:700">${rp.count}건</span>
                 </div>
                 ${(rp.examples || []).slice(0, 1).map(ex => `
-                  <div style="font-size:10px;color:var(--text-muted);font-style:italic;line-height:1.4">"${escHtml(ex)}"</div>`).join('')}
+                  <div style="font-size:11px;color:var(--text-muted);font-style:italic;line-height:1.5">"${escHtml(ex)}"</div>`).join('')}
               </div>`).join('')}
           </div>
         </div>` : ''}
+
+        <!-- 📌 핵심 인사이트 + 💡 액션 제안 -->
+        <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.05);background:rgba(167,139,250,0.04)">
+          <div style="margin-bottom:12px">
+            <div style="font-size:12px;color:#a78bfa;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px">
+              📌 핵심 인사이트
+            </div>
+            <div style="font-size:14px;line-height:1.45;color:var(--text-primary);font-weight:600">
+              ${escHtml(coreInsight)}
+            </div>
+          </div>
+          <div style="background:rgba(255,255,255,0.035);border-radius:6px;padding:10px 12px">
+            <div style="font-size:11px;color:#a78bfa;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:7px">
+              💡 액션 제안 (Claude의 의견)
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              ${actions.slice(0, 3).map((a, i) => `
+                <div style="display:flex;gap:8px;font-size:12.5px;line-height:1.5;color:var(--text-primary)">
+                  <span style="color:#a78bfa;font-weight:700;flex-shrink:0">${i+1}.</span>
+                  <span>${escHtml(a)}</span>
+                </div>`).join('')}
+            </div>
+          </div>
+        </div>
+
+        <!-- 📊 근거 데이터 (접힘) -->
+        <div data-collapse-id="yt-evidence" style="padding:12px 18px">
+          <button onclick="toggleCollapse('yt-evidence', this)" data-collapse-label="📊 근거 데이터 (영상·채널·콘텐츠 분포) ▼"
+            style="width:100%;padding:8px 10px;background:rgba(255,255,255,0.025);border:1px dashed rgba(255,255,255,0.12);border-radius:6px;font-size:11.5px;color:var(--text-muted);cursor:pointer;text-align:left;transition:background 0.15s"
+            onmouseover="this.style.background='rgba(255,255,255,0.05)'"
+            onmouseout="this.style.background='rgba(255,255,255,0.025)'">
+            📊 근거 데이터 (영상·채널·콘텐츠 분포) ▼
+          </button>
+          <div data-collapse-extra style="display:none;margin-top:12px">
+
+            <!-- 인기 콘텐츠 TOP -->
+            <div style="margin-bottom:14px">
+              <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:6px">인기 콘텐츠 TOP</div>
+              ${collapsibleSection('yt-top', s.topVideos, 3, (v) => `
+                <a href="https://www.youtube.com/watch?v=${escHtml(v.id)}" target="_blank" rel="noopener noreferrer"
+                   style="display:flex;gap:10px;padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:4px;border-left:2px solid ${YT_CHANNEL_COLOR[v.channelType] || '#6b7280'};margin-bottom:5px;text-decoration:none;color:inherit">
+                  ${v.thumbnail ? `<img src="${escHtml(v.thumbnail)}" style="width:80px;height:45px;object-fit:cover;border-radius:3px;flex-shrink:0">` : ''}
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:12px;font-weight:600;line-height:1.4;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${escHtml(v.title)}${YT_CHANNEL_BADGE[v.channelType] || ''}</div>
+                    <div style="font-size:10px;color:var(--text-muted);margin-top:3px">
+                      <span style="color:${YT_CONTENT_COLOR[v.contentType] || '#6b7280'}">${v.contentType}</span>
+                      · ${escHtml(v.channel)}
+                      · 👁 ${fmtViews(v.views || 0)}${v.likes ? ' · 👍 ' + fmtViews(v.likes) : ''}
+                      ${v.publishedText ? ' · ' + escHtml(v.publishedText) : ''}
+                    </div>
+                  </div>
+                </a>`)}
+            </div>
+
+            <!-- 채널 + 콘텐츠 분포 -->
+            ${(s.channelTypeStats || []).length > 0 ? `
+              <div style="margin-bottom:10px">
+                <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:6px">채널 타입</div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px">
+                  ${(s.channelTypeStats || []).map(c => `
+                    <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:rgba(255,255,255,0.03);border-radius:14px;font-size:11px;border-left:3px solid ${YT_CHANNEL_COLOR[c.channelType] || '#6b7280'}">
+                      ${escHtml(c.label)} <strong>${c.count}</strong> <span style="color:var(--text-muted);font-size:10px">(${fmtViews(c.totalViews)} views)</span>
+                    </span>`).join('')}
+                </div>
+              </div>` : ''}
+            <div>
+              <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:6px">콘텐츠 유형</div>
+              <div style="display:flex;flex-wrap:wrap;gap:6px">
+                ${(s.contentTypeStats || []).map(c => `
+                  <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:rgba(255,255,255,0.03);border-radius:14px;font-size:11px;border-left:3px solid ${YT_CONTENT_COLOR[c.type] || '#6b7280'}">
+                    ${escHtml(c.label)} <strong>${c.count}</strong> <span style="color:var(--text-muted);font-size:10px">(${fmtViews(c.totalViews)} views)</span>
+                  </span>`).join('')}
+              </div>
+            </div>
+          </div>
+        </div>
 
       </div>
     </div>`
@@ -904,28 +1051,37 @@ function renderMdlDrama(a, idx) {
       <!-- 쟁점 클러스터 -->
       ${(a.reviewDebates && a.reviewDebates.length) ? `
         <div style="margin-top:10px">
-          <div style="font-size:13px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:5px">🗣️ 리뷰 쟁점 클러스터</div>
+          <div style="font-size:13px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:5px">🗣️ 리뷰·코멘트 쟁점 클러스터</div>
           ${renderCommentDebatesInline(a.reviewDebates)}
         </div>` : ''}
 
       <!-- 대표 리뷰 -->
-      ${(a.representativeReviews && a.representativeReviews.length) ? `
+      ${(a.representativeReviews && a.representativeReviews.length) ? (() => {
+        const reviewsUrl = (a.drama.url || '').replace(/\/$/, '') + '/reviews'
+        return `
         <div style="margin-top:10px">
-          <div style="font-size:13px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:5px">📝 대표 리뷰</div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
+            <div style="font-size:13px;color:var(--text-muted);text-transform:uppercase;font-weight:700">📝 대표 리뷰</div>
+            <a href="${escHtml(reviewsUrl)}" target="_blank" rel="noopener noreferrer" style="font-size:10px;color:#a78bfa;text-decoration:none">MDL에서 모든 리뷰 보기 ↗</a>
+          </div>
           ${a.representativeReviews.map(r => {
             const display = r.bodyKo || r.body
             const original = r.bodyKo && r.bodyKo !== r.body ? r.body : null
             return `
-            <div style="font-size:11px;padding:6px 10px;background:rgba(255,255,255,0.025);border-left:2px solid ${SENT_COLOR[r.sentiment]};margin-bottom:4px;border-radius:3px;line-height:1.5">
-              <span style="margin-right:5px">${SENT_ICON[r.sentiment]}</span>
-              <strong style="color:#a78bfa">${escHtml(r.username)}</strong>
-              <span style="color:var(--text-muted)">⭐${r.rating}</span>
-              <span style="color:var(--text-muted);margin-left:6px">👍${r.helpful}</span>
-              <div style="margin-top:3px;color:var(--text-primary)">"${escHtml(display)}"</div>
-              ${original ? `<div style="font-size:10px;color:var(--text-muted);margin-top:3px;font-style:italic;opacity:0.7">↳ ${escHtml(original)}</div>` : ''}
-            </div>`
+            <a href="${escHtml(reviewsUrl)}" target="_blank" rel="noopener noreferrer" style="display:block;text-decoration:none;color:inherit">
+              <div style="font-size:11px;padding:6px 10px;background:rgba(255,255,255,0.025);border-left:2px solid ${SENT_COLOR[r.sentiment]};margin-bottom:4px;border-radius:3px;line-height:1.5;cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='rgba(167,139,250,0.08)'" onmouseout="this.style.background='rgba(255,255,255,0.025)'">
+                <span style="margin-right:5px">${SENT_ICON[r.sentiment]}</span>
+                <strong style="color:#a78bfa">${escHtml(r.username)}</strong>
+                <span style="color:var(--text-muted)">⭐${r.rating}</span>
+                <span style="color:var(--text-muted);margin-left:6px">👍${r.helpful}</span>
+                <span style="color:var(--text-muted);margin-left:6px;font-size:10px">↗</span>
+                <div style="margin-top:3px;color:var(--text-primary)">"${escHtml(display)}"</div>
+                ${original ? `<div style="font-size:10px;color:var(--text-muted);margin-top:3px;font-style:italic;opacity:0.7">↳ ${escHtml(original)}</div>` : ''}
+              </div>
+            </a>`
           }).join('')}
-        </div>` : ''}
+        </div>`
+      })() : ''}
     </div>`
 }
 
@@ -1964,6 +2120,7 @@ function navigateTo(page) {
   render()
   if (page === 'crawl')    { setTimeout(loadLogs, 100); setTimeout(prefetchMdlCache, 100); setTimeout(prefetchGtrendsCache, 100); setTimeout(prefetchYoutubeCache, 100) }
   if (page === 'ranking')  { setTimeout(prefetchMdlCache, 100); setTimeout(prefetchYoutubeCache, 100) }
+  if (page === 'top-ranking') setTimeout(() => loadTopRanking(false), 50)
   if (page === 'history')  setTimeout(loadHistory, 100)
   if (page === 'schedule') setTimeout(loadSchedule, 100)
   if (page === 'reddit')   { window._redditSub = '전체'; renderPage() }
@@ -2443,6 +2600,322 @@ function clearSearch() {
 }
 
 // ============================================================
+// 명작 랭킹 (MDL 역대 글로벌 인기 K드라마)
+// ============================================================
+async function loadTopRanking(force = false) {
+  if (state.topRankingLoading) return
+  state.topRankingLoading = true
+
+  try {
+    if (!force) {
+      const r = await fetch('/api/mdl/top-ranking').then(x => x.json())
+      if (r.ok && r.items && r.items.length > 0) {
+        state.topRanking = r
+        if (state.page === 'top-ranking') renderPage()
+        state.topRankingLoading = false
+        return
+      }
+    }
+
+    if (state.page === 'top-ranking') renderPage()  // placeholder("로딩중") 표시
+
+    const r = await fetch('/api/mdl/top-ranking/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ force }),
+    }).then(x => x.json())
+    if (r.ok && r.items) {
+      state.topRanking = r
+    } else {
+      state.topRanking = { ok: false, error: r.error || '데이터 없음' }
+    }
+  } catch (e) {
+    state.topRanking = { ok: false, error: String(e) }
+  } finally {
+    state.topRankingLoading = false
+    if (state.page === 'top-ranking') renderPage()
+  }
+}
+
+function renderTopRanking() {
+  const data = state.topRanking
+  const loading = state.topRankingLoading
+
+  let body = ''
+  if (loading && (!data || !data.items)) {
+    body = `
+      <div class="empty-state">
+        <i class="fas fa-spinner fa-spin"></i>
+        <p>역대 랭킹 수집 중... (Playwright 크롤, 30초~1분 소요)</p>
+      </div>`
+  } else if (!data || (data.ok === false)) {
+    body = `
+      <div class="empty-state">
+        <i class="fas fa-medal"></i>
+        <p>아직 데이터가 없습니다${data?.error ? ` (${escHtml(data.error)})` : ''}</p>
+        <button class="btn btn-primary" style="margin-top:12px" onclick="loadTopRanking(true)">
+          <i class="fas fa-spider"></i> 지금 크롤하기
+        </button>
+      </div>`
+  } else if (!data.items || data.items.length === 0) {
+    body = `<div class="empty-state"><i class="fas fa-medal"></i><p>데이터 없음</p></div>`
+  } else {
+    body = renderTopRankingTable(data.items)
+  }
+
+  const meta = (data && data.fetchedAt)
+    ? (() => {
+        const ago = Math.round((Date.now() - new Date(data.fetchedAt).getTime()) / 60000)
+        const exp = data.expiresAt ? new Date(data.expiresAt) : null
+        const expTxt = exp ? ` · 만료 ${exp.toLocaleDateString('ko-KR')}` : ''
+        return `<span style="font-size:11px;color:var(--text-muted)">캐시 · ${ago < 60 ? ago + '분' : Math.round(ago/60) + '시간'} 전${expTxt}</span>`
+      })()
+    : ''
+
+  const count = data?.items?.length || 0
+
+  return `
+    <div class="page-header">
+      <div>
+        <div class="page-title">
+          <a href="https://mydramalist.com/shows/popular" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none" title="MyDramaList Popular 페이지 열기">
+            🏆 MDL 글로벌 인기 K드라마 <i class="fas fa-arrow-up-right-from-square" style="font-size:13px;color:var(--text-muted);margin-left:4px"></i>
+          </a>
+        </div>
+        <div class="page-sub" title="MyDramaList 공식 FAQ: 'Our Dramas and Movies are ranked using a complex algorithm that takes into account several factors including how many people added the drama to their list, the ratings given by users, the number of comments and recommendations, and reviews from viewers.'">
+          리스트 추가 수 · 시청자 평점 · 댓글 수 · 추천 수 · 리뷰를 종합한 MyDramaList 공식 인기 알고리즘 기준 · 한 달마다 갱신${count ? ` · ${count}개 작품` : ''}
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        ${meta}
+        <button class="btn btn-outline" onclick="loadTopRanking(true)" ${loading ? 'disabled' : ''}>
+          <i class="fas fa-sync-alt ${loading ? 'fa-spin' : ''}"></i> 새로고침
+        </button>
+      </div>
+    </div>
+    <div style="padding:20px 28px">
+      <div class="card">
+        <div class="card-body" style="padding:0">
+          ${body}
+        </div>
+      </div>
+    </div>`
+}
+
+function renderTopRankingTable(items) {
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:50px">#</th>
+          <th style="width:80px"></th>
+          <th>제목</th>
+          <th style="width:90px">연도</th>
+          <th style="width:90px">에피소드</th>
+          <th style="width:100px;text-align:right">평점</th>
+          <th style="width:40px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map((d, i) => renderTopRankingRow(d, i)).join('')}
+      </tbody>
+    </table>`
+}
+
+function renderTopRankingRow(d, i) {
+  const exp = state.topRankingExpanded[d.slug]
+  const isOpen = !!exp
+  return `
+    <tr style="cursor:pointer" onclick="toggleTopRankingRow('${escAttr(d.slug)}')" title="클릭하여 리뷰 분석 보기">
+      <td><span class="rank-num ${typeof rankColor === 'function' ? rankColor(i) : ''}" style="font-size:13px">${i+1}</span></td>
+      <td>${d.posterUrl ? `<img src="${d.posterUrl}" alt="" style="width:54px;height:78px;object-fit:cover;border-radius:4px;display:block" loading="lazy">` : ''}</td>
+      <td>
+        <div style="font-size:13px;font-weight:600">
+          <a href="${d.url}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none" onclick="event.stopPropagation()">${escHtml(d.title)}</a>
+          ${exp?.analysis ? '<span style="margin-left:6px;font-size:10px;color:#10b981" title="분석 캐시됨">📊</span>' : ''}
+        </div>
+        ${d.description ? `<div style="font-size:11px;color:var(--text-muted);margin-top:3px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${escHtml(d.description)}</div>` : ''}
+      </td>
+      <td style="font-size:12px;color:var(--text-muted)">${d.year || '-'}</td>
+      <td style="font-size:12px;color:var(--text-muted)">${d.episodes ? d.episodes + '화' : '-'}</td>
+      <td style="text-align:right">
+        <span style="font-size:14px;font-weight:700;color:#a78bfa">⭐ ${d.rating ? d.rating.toFixed(2) : '-'}</span>
+      </td>
+      <td style="text-align:center;color:var(--text-muted)"><i class="fas fa-chevron-${isOpen ? 'up' : 'down'}" style="font-size:11px"></i></td>
+    </tr>
+    ${isOpen ? `
+      <tr class="expanded-analysis-row">
+        <td colspan="7" style="padding:0;background:rgba(167,139,250,0.04);border-top:1px solid rgba(167,139,250,0.15)">
+          ${renderDramaAnalysisPanel(d, exp)}
+        </td>
+      </tr>` : ''}
+  `
+}
+
+function renderDramaAnalysisPanel(d, exp) {
+  if (exp.loading) {
+    return `
+      <div style="padding:18px 22px;display:flex;align-items:center;gap:10px;color:var(--text-muted);font-size:12px">
+        <i class="fas fa-spinner fa-spin"></i>
+        <span>${escHtml(d.title)} 리뷰 10개 + 코멘트 분석 중... (Playwright, 약 17초)</span>
+      </div>`
+  }
+  if (exp.error) {
+    return `
+      <div style="padding:18px 22px;font-size:12px;color:#ef4444">
+        <i class="fas fa-circle-exclamation"></i> 분석 실패: ${escHtml(exp.error)}
+        <button class="btn btn-outline" style="margin-left:10px;padding:3px 10px;font-size:11px" onclick="event.stopPropagation();loadDramaAnalysis('${escAttr(d.slug)}', true)">재시도</button>
+      </div>`
+  }
+  const a = exp.analysis
+  if (!a) return ''
+
+  const sent = a.reviewSentiment || {}
+  const total = (sent.positive || 0) + (sent.negative || 0) || 1
+  const pos = Math.round((sent.positiveRatio || 0) * 100)
+  const neg = Math.round((sent.negativeRatio || 0) * 100)
+  const br = a.ratingBreakdown || { distribution: { '9-10': 0, '7-9': 0, '5-7': 0, 'below5': 0 } }
+  const distTotal = (br.distribution['9-10'] + br.distribution['7-9'] + br.distribution['5-7'] + br.distribution['below5']) || 1
+  const distBar = (n, color, label) => n > 0 ? `<div style="flex:${n};background:${color}" title="${label}: ${n}개 (${Math.round(n/distTotal*100)}%)"></div>` : ''
+
+  const reps = (a.representativeReviews || []).slice(0, 2)
+  const debates = (a.reviewDebates || []).slice(0, 4)
+
+  return `
+    <div style="padding:18px 22px" onclick="event.stopPropagation()">
+      <!-- 인기 사유 -->
+      <div style="font-size:13px;color:#c4b5fd;font-weight:600;margin-bottom:8px">📊 ${escHtml(d.title)} 분석</div>
+      <div style="font-size:12px;line-height:1.6;margin-bottom:12px">${escHtml(a.popularityReason || '')}</div>
+
+      <!-- 평점 분포 + 감정 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px">
+        <div>
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:4px">평점 분포 (리뷰 ${a.drama?.reviewCount || 0}개)</div>
+          <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:rgba(255,255,255,0.05)">
+            ${distBar(br.distribution['9-10'], '#10b981', '9-10')}
+            ${distBar(br.distribution['7-9'], '#84cc16', '7-9')}
+            ${distBar(br.distribution['5-7'], '#f59e0b', '5-7')}
+            ${distBar(br.distribution['below5'], '#ef4444', '<5')}
+          </div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:4px">
+            <span style="color:#10b981">9-10: ${br.distribution['9-10']}</span> ·
+            <span style="color:#84cc16">7-9: ${br.distribution['7-9']}</span> ·
+            <span style="color:#f59e0b">5-7: ${br.distribution['5-7']}</span> ·
+            <span style="color:#ef4444">&lt;5: ${br.distribution['below5']}</span>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:4px">댓글 감정</div>
+          <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:rgba(255,255,255,0.05)">
+            <div style="flex:${pos};background:#10b981"></div>
+            <div style="flex:${neg};background:#ef4444"></div>
+          </div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:4px">
+            <span style="color:#10b981">긍정 ${pos}%</span> · <span style="color:#ef4444">부정 ${neg}%</span>
+            ${a.polarized ? `<span style="margin-left:8px;color:#f59e0b" title="${escAttr(a.polarizedReason || '')}">⚡ 평가 분열</span>` : ''}
+          </div>
+        </div>
+      </div>
+
+      <!-- 감정 요약 -->
+      ${a.sentimentSummary ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:4px;border-left:2px solid #a78bfa">${escHtml(a.sentimentSummary)}</div>` : ''}
+
+      <!-- 토픽 클러스터 -->
+      ${debates.length ? `
+        <div style="margin-bottom:12px">
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:6px">주요 토픽</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            ${debates.map(t => {
+              const color = t.opinionDirection === 'positive' ? '#10b981' : t.opinionDirection === 'negative' ? '#ef4444' : '#a78bfa'
+              const dirIcon = t.opinionDirection === 'positive' ? '👍' : t.opinionDirection === 'negative' ? '👎' : '💬'
+              return `<span style="font-size:11px;padding:3px 8px;border-radius:10px;background:${color}22;color:${color}">${dirIcon} ${escHtml(t.topic)} ${t.count}</span>`
+            }).join('')}
+          </div>
+        </div>` : ''}
+
+      <!-- 대표 리뷰 -->
+      ${reps.length ? `
+        <div>
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:6px">대표 리뷰 (helpful 순)</div>
+          ${reps.map((r, ri) => {
+            const sColor = r.sentiment === 'positive' ? '#10b981' : r.sentiment === 'negative' ? '#ef4444' : '#94a3b8'
+            const hasKo = !!r.bodyKo
+            const revId = `rev-${escAttr(d.slug)}-${ri}`
+            return `
+              <div style="font-size:11px;padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:4px;border-left:2px solid ${sColor};margin-bottom:6px;line-height:1.5">
+                <div style="display:flex;gap:8px;align-items:center;margin-bottom:3px;font-size:10px;color:var(--text-muted)">
+                  <strong style="color:var(--text-primary)">${escHtml(r.username)}</strong>
+                  <span>⭐ ${r.rating || '-'}</span>
+                  <span>👍 ${r.helpful}</span>
+                  ${hasKo ? `<button style="margin-left:auto;padding:1px 8px;font-size:10px;background:transparent;border:1px solid var(--border);border-radius:3px;color:var(--text-muted);cursor:pointer" onclick="event.stopPropagation();toggleReviewLang('${revId}')"><span id="${revId}-label">원문 보기</span></button>` : ''}
+                </div>
+                ${hasKo ? `
+                  <div id="${revId}-ko" style="color:var(--text-secondary)">${escHtml(r.bodyKo)}</div>
+                  <div id="${revId}-en" style="color:var(--text-muted);font-style:italic;display:none">${escHtml(r.body)}</div>
+                ` : `<div style="color:var(--text-secondary)">${escHtml(r.body)}</div>`}
+              </div>`
+          }).join('')}
+        </div>` : ''}
+    </div>`
+}
+
+function escAttr(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]) }
+
+function toggleReviewLang(revId) {
+  const ko = document.getElementById(`${revId}-ko`)
+  const en = document.getElementById(`${revId}-en`)
+  const lbl = document.getElementById(`${revId}-label`)
+  if (!ko || !en || !lbl) return
+  const showingKo = ko.style.display !== 'none'
+  ko.style.display = showingKo ? 'none' : ''
+  en.style.display = showingKo ? '' : 'none'
+  lbl.textContent = showingKo ? '한글 보기' : '원문 보기'
+}
+
+function toggleTopRankingRow(slug) {
+  const exp = state.topRankingExpanded[slug]
+  if (exp) {
+    delete state.topRankingExpanded[slug]
+    renderPage()
+    return
+  }
+  // 펼치기 → 캐시 시도 후 없으면 분석 호출
+  state.topRankingExpanded[slug] = { loading: false, analysis: null, error: null }
+  renderPage()
+  loadDramaAnalysis(slug, false)
+}
+
+async function loadDramaAnalysis(slug, force) {
+  state.topRankingExpanded[slug] = { ...(state.topRankingExpanded[slug] || {}), loading: true, error: null }
+  if (state.page === 'top-ranking') renderPage()
+
+  try {
+    if (!force) {
+      const r = await fetch(`/api/mdl/drama/${encodeURIComponent(slug)}`).then(x => x.json())
+      if (r.ok && r.analysis) {
+        state.topRankingExpanded[slug] = { loading: false, analysis: r.analysis, error: null, cached: true }
+        if (state.page === 'top-ranking') renderPage()
+        return
+      }
+    }
+    const r = await fetch(`/api/mdl/drama/${encodeURIComponent(slug)}/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ force }),
+    }).then(x => x.json())
+    if (r.ok && r.analysis) {
+      state.topRankingExpanded[slug] = { loading: false, analysis: r.analysis, error: null, cached: r.cached }
+    } else {
+      state.topRankingExpanded[slug] = { loading: false, analysis: null, error: r.error || '분석 실패' }
+    }
+  } catch (e) {
+    state.topRankingExpanded[slug] = { loading: false, analysis: null, error: String(e) }
+  } finally {
+    if (state.page === 'top-ranking') renderPage()
+  }
+}
+
+// ============================================================
 // Sidebar
 // ============================================================
 function renderSidebar() {
@@ -2450,6 +2923,7 @@ function renderSidebar() {
   const nav = [
     ['dashboard', 'fas fa-chart-pie',    '대시보드'],
     ['ranking',   'fas fa-trophy',        '콘텐츠 랭킹'],
+    ['top-ranking', 'fas fa-medal',       '명작 랭킹'],
     ['reddit',    'fab fa-reddit',        `Reddit 포스트${redditCount ? ` <span style="background:#ff653422;color:#ff6534;border-radius:10px;padding:1px 6px;font-size:10px">${redditCount}</span>` : ''}`],
     ['crawl',     'fas fa-spider',        '크롤링'],
     ['schedule',  'fas fa-clock',         '스케줄'],
@@ -2490,6 +2964,7 @@ function renderPage() {
   const pages = {
     dashboard: renderDashboard,
     ranking:   renderRanking,
+    'top-ranking': renderTopRanking,
     reddit:    renderReddit,
     crawl:     renderCrawl,
     history:   renderHistory,
