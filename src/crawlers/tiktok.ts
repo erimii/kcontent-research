@@ -205,16 +205,31 @@ export async function crawlTiktokBuzz(
   const dedup = [...merged.values()]
   console.log(`  [TikTok] dedup 후 ${dedup.length}개 유니크 영상`)
 
-  // 2.5. 시간 필터 — 최근 30일 이내 업로드만 (트렌드성 유지)
-  // createTime: Unix 초 단위. 메타 누락 시(0/undefined) 보수적으로 통과시켜 정보 손실 방지
-  const THIRTY_DAYS_AGO = Math.floor(Date.now() / 1000) - 30 * 24 * 3600
-  const recent = dedup.filter((v) => {
-    const ct = v.createTime || 0
-    if (!ct) return true  // 타임스탬프 없으면 통과 (보수적)
-    return ct >= THIRTY_DAYS_AGO
-  })
+  // 2.5. 시간 필터 — 단계적 fallback (30일 → 60일 → 90일)
+  // 30일 이내가 너무 적으면(<MIN_RECENT) 60일·90일로 점진적 완화
+  // createTime: Unix 초 단위. 메타 누락 시(0/undefined) 보수적으로 통과
+  const MIN_RECENT = 15  // 최종 topN=30 채우려면 이 정도는 있어야 안전
+  const NOW_SEC = Math.floor(Date.now() / 1000)
+  const filterByDays = (days: number) => {
+    const cutoff = NOW_SEC - days * 24 * 3600
+    return dedup.filter((v) => {
+      const ct = v.createTime || 0
+      if (!ct) return true
+      return ct >= cutoff
+    })
+  }
+  let recent = filterByDays(30)
+  let appliedWindow = 30
+  if (recent.length < MIN_RECENT) {
+    const r60 = filterByDays(60)
+    if (r60.length > recent.length) { recent = r60; appliedWindow = 60 }
+  }
+  if (recent.length < MIN_RECENT) {
+    const r90 = filterByDays(90)
+    if (r90.length > recent.length) { recent = r90; appliedWindow = 90 }
+  }
   const droppedByDate = dedup.length - recent.length
-  console.log(`  [TikTok] 30일 이내 필터 후 ${recent.length}개 (${droppedByDate}개 제거)`)
+  console.log(`  [TikTok] ${appliedWindow}일 이내 필터 후 ${recent.length}개 (${droppedByDate}개 제거)${appliedWindow > 30 ? ' — 30일이 부족해 fallback 확장' : ''}`)
 
   // 3. 1차 필터 — 채널 분류 + caption 마커 (description 없는 단계)
   const channelFiltered = recent.filter((v) => {
