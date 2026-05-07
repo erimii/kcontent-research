@@ -13,8 +13,8 @@
   - Reddit Atom RSS (인증 불필요)
   - MyDramaList — Playwright 헤드리스 (Cloudflare 우회)
   - Google Trends — Playwright trending 페이지 스크래핑 (7개 카테고리·시간·geo URL 병합)
-  - YouTube — `youtubei.js` Innertube (무인증, 14개 해시태그 → 영상 30개 + 댓글 ~2,500-3,000개 (영상당 100개, pagination), 2단계 K-content 마커 필터)
-  - TikTok — `@tobyg74/tiktok-api-dl` + 사용자 sessionid 쿠키 (5개 키워드 × 2페이지 → 영상 30개 + 댓글 ~450개, 작품·사운드·크리에이터 분석)
+  - YouTube — `youtubei.js` Innertube (무인증, 14개 해시태그 → 영상 30개 + 댓글 ~1,500-3,000개 (영상당 100개, pagination), 2단계 K-content 마커 필터, 다국어 분포·catchphrase·답글 핫스팟)
+  - TikTok — `@tobyg74/tiktok-api-dl` + 사용자 sessionid 쿠키 (7개 키워드 × 1페이지 사람 패턴 검색 → 영상 30개 + 댓글, 작품·사운드·크리에이터 분석)
 - **프론트**: Vanilla JS SPA (`public/static/app.js`) — 더보기/접기 토글로 스크롤 길이 절반 단축
 
 ---
@@ -197,6 +197,7 @@ TOP5 포스트마다:
 - **댓글 한국어 번역** ([src/pipeline/translateYoutube.ts](src/pipeline/translateYoutube.ts)): 작품별 카드의 댓글을 Groq AI로 번역 → `textKo` 필드. 화면에선 한글 우선, hover 시 영문 원본
 - **콘텐츠 유형 분류**: scene (MV/명장면/트레일러 흡수) / meme / edit / reaction / review / actor / other
 - **캐시**: `mdl_cache` 테이블 (key `youtube_buzz_v3`), TTL **3시간**. v3 = contentGroups + commentCount + 한국어 번역 포함
+- **댓글 수집량**: 영상당 100개 (`youtubei.js` `getContinuation()` pagination, 최대 6 페이지). 총 ~1,500-3,000개 댓글 풀
 
 ---
 
@@ -204,26 +205,34 @@ TOP5 포스트마다:
 
 **별도 파이프라인** ([src/crawlers/tiktok.ts](src/crawlers/tiktok.ts) + [src/pipeline/tiktokAnalysis.ts](src/pipeline/tiktokAnalysis.ts) + [src/pipeline/translateTiktok.ts](src/pipeline/translateTiktok.ts))
 
-- **인증 필수**: TikTok이 익명 search를 차단하여 사용자 sessionid 쿠키가 필요. 추출 방법은 `~/Desktop/secret/001/tiktok-cookies.json`에 Cookie-Editor JSON 형식 저장 (chmod 600)
-- **수집**: `@tobyg74/tiktok-api-dl` 라이브러리로 5개 키워드 × 2페이지 → 영상 30개 + 댓글 ~450개 (~30초~2분)
-  - 키워드 (단일 영문 단어가 라이브러리에서 가장 안정): `kdrama` `kdramatok` `kdramaedit` `koreandrama` `kdramaclip`
-  - 키워드당 25초 timeout 강제 (라이브러리 내부 retry 10회 누적 방지)
-- **2단계 K-content 마커 필터** (YouTube 동일 패턴 재활용):
-  - 비-K 드라마 명시(cdrama/jdrama/thai 등) / 비-NA 스크립트(Devanagari·Cyrillic·Arabic·Thai) / 로마자 힌디어/필리핀어
-  - 공식 채널이라도 비-NA 지역 분점(Disney+ Philippines 등)은 채널명 기준 탈락
+- **인증 필수**: TikTok이 익명 search를 차단하여 사용자 sessionid 쿠키가 필요. 추출 방법은 `~/Desktop/secret/001/tiktok-cookies.json`에 Cookie-Editor JSON 형식 저장 (chmod 600). 쿠키 mtime 기반 자동 재로드
+- **수집**: `@tobyg74/tiktok-api-dl` 라이브러리 + `patches/@tobyg74+tiktok-api-dl+1.3.7.patch` (라이브러리 내부 retry 10→2 줄임)
+  - 키워드 7개 (단일 영문 단어만 — 띄어쓰기는 라이브러리 retry 누적): `kdrama` `koreandrama` `kdramareview` `kdramareaction` `kdramaclip` `kvarietyshow` `lovelyrunner`
+  - **사람 같은 검색 패턴**: 동시 1개 (순차) × 페이지 1만 × 키워드 간 30초 sleep — TikTok 분당 quota 회피
+  - 페이지 2-3은 거의 실패 + throttle 패턴 누적 → 1페이지로 한정
+- **2단계 K-content 마커 필터** (YouTube 동일 패턴 재활용 + TikTok 특화):
+  - 비-K 드라마 명시 즉시 탈락 (`cdrama / chinese drama / jdrama / xianxia / wuxia / donghua` 등)
+  - 비-K 해시태그 블랙리스트 (`#cdrama / #cdramatok / #cdramaedit / #cnovel / #xianxia` — `#kdrama`도 같이 달려도 우선 적용)
+  - 한자(Hanzi) 검출 — 한국어는 한글, 한자 등장 시 중국 콘텐츠 가능성 매우 큼
+  - 비-NA 스크립트 차단 (Devanagari·Cyrillic·Arabic·Thai)
+  - 비-NA 단어 차단 (힌디어 `bhai`/`yaar`, 필리핀어 `naman po`, 베트남어 `phim`/`hàn quốc`/`không`/`được`/`người` 등)
+  - 베트남어 diacritics(`đ`/`ơ`/`ư` + tone marks) 검출
+  - 공식 채널이라도 비-NA 지역 분점(Disney+ Philippines/KBS Latino/Viu Indonesia 등)은 채널명 기준 탈락
+  - C-드라마 작품명 사전 (Word of Honor / Eternal Love / Meteor Garden 등 ~16개)
   - 1차(메타 시점)는 공식 면제, 2차(댓글 fetch 후 caption+sound title 포함)에서 모든 영상 재검사
+- **시간 필터 단계적 fallback**: 30일 이내가 부족하면 60일 → 90일로 자동 확장 (TikTok 검색이 viral 인기순 노출이라 evergreen 영상 다수)
 - **engagement score** (TikTok 특성 반영, log scale): `views×1 + likes×2 + comments×5 + shares×3` — 댓글·공유 비중 강
 - **🏆 작품별 화제도 (contentGroups)**: 영상 → 작품 단위 집계 6개 (KNOWN_DRAMAS_STATIC + caption 패턴 + K-쇼 화이트리스트)
-- **🎵 트렌딩 사운드**: 데이터셋 내 같은 sound 재사용 영상 ≥ 2개인 사운드 TOP 8 (절대 트렌드 아닌 우리 풀 내 신호)
-- **👤 K-드라마 크리에이터 랭킹**: 작가별 영상수·총 조회수·총 좋아요 합산 TOP 8 (아바타·verified·팔로워 메타 포함)
+- **🎵 트렌딩 사운드**: 데이터셋 내 같은 sound 재사용 영상 ≥ 2개인 사운드 TOP 8
+- **👤 K-드라마 크리에이터 랭킹**: 작가별 영상수·총 조회수·총 좋아요 합산 TOP 8
 - **댓글 한국어 번역** ([src/pipeline/translateTiktok.ts](src/pipeline/translateTiktok.ts)): 작품별 카드 댓글만 Groq AI로 번역 (cost 절감)
-- **캐시**: `mdl_cache` 테이블 (key `tiktok_buzz_v1`), TTL **3시간**
+- **캐시**: `mdl_cache` 테이블 (key `tiktok_buzz_v1`), TTL **3시간**. 사용자 클릭 트리거 방식 (백그라운드 cron 사용 안 함 — IP risk 누적 방지)
 
 **한계**:
-- TikTok 측 IP-level rate limit이 자주 발생 (video search 일시 차단). 30-60분 후 자동 해제, 그 동안 카드 비어 보임
+- TikTok 측 IP-level rate limit이 자주 발생 (video search 일시 차단). 한 IP에서 누적 호출이 많아지면 12-24시간 hard block. 모바일 핫스팟·VPN으로 IP 변경 시 즉시 회복
 - 쿠키 만료 시(보통 1-2주) 재추출 필요. 만료 시 `Empty response` / `Login required` 에러
 - 북미 region 메타 비공개 → 텍스트 신호로 추정 (외국 K-팬 콘텐츠 일부 누수 가능)
-- 댓글 fetch 영상당 ~20개 제한 (YouTube ~30개 대비 적음)
+- 댓글 fetch 영상당 ~20개 제한 (YouTube ~100개 대비 적음)
 
 ---
 
