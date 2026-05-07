@@ -200,10 +200,16 @@ async function fetchVideoDetail(yt: any, video: Partial<YoutubeVideo>, maxCommen
         if (!cm) continue
         const text = cm.content?.text || ''
         if (!text || text.length < 4) continue
+        // reply_count: "3.2K" 같은 문자열 또는 숫자
+        const replyCountRaw = cm.reply_count
+        const replyCount = typeof replyCountRaw === 'number'
+          ? replyCountRaw
+          : (replyCountRaw ? viewsToNumber(String(replyCountRaw)) : 0)
         comments.push({
           author: cm.author?.name || 'anon',
           text: text.slice(0, 800),
           likes: typeof cm.like_count === 'number' ? cm.like_count : viewsToNumber(cm.like_count || ''),
+          replyCount,
         })
         if (comments.length >= maxComments) break
       }

@@ -480,6 +480,16 @@ app.get('/api/newsletter/:id', (req, res) => {
                   <div style="font-size:10px;color:#9ba3bf;margin-top:2px">
                     🌍 ${(g.languageDistribution || []).slice(0, 5).map((L: any) => `${L.flag} ${L.percent}%`).join(' · ')}
                   </div>` : ''}
+                ${(g.quotedPhrases || []).length > 0 ? `
+                  <div style="font-size:11px;color:#fbbf24;margin-top:5px;padding:5px 8px;background:#fffbf0;border-left:2px solid #fbbf24;border-radius:3px;line-height:1.5">
+                    <strong>💎 자주 인용</strong>
+                    ${(g.quotedPhrases || []).slice(0, 3).map((qp: any) => `<div style="color:#1a1a2e;margin-top:2px">"${escNl(qp.phrase.slice(0, 70))}" <span style="color:#9ba3bf">— ${qp.count}회</span></div>`).join('')}
+                  </div>` : ''}
+                ${g.discussionHotspot ? `
+                  <div style="font-size:11px;color:#a78bfa;margin-top:5px;padding:5px 8px;background:#f7f5ff;border-left:2px solid #a78bfa;border-radius:3px;line-height:1.5">
+                    <strong>🔥 토론 핫스팟</strong> · 답글 ${g.discussionHotspot.replyCount} · 👍 ${g.discussionHotspot.likes}
+                    <div style="color:#1a1a2e;margin-top:2px">"${escNl((g.discussionHotspot.textKo || g.discussionHotspot.text || '').slice(0, 100))}"</div>
+                  </div>` : ''}
                 ${(g.topComments || []).slice(0, 1).map((c: any) => {
                   const display = c.textKo || c.text || ''
                   return `

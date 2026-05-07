@@ -192,6 +192,8 @@ TOP5 포스트마다:
   - 작품 단위 합산: `videoCount` / `totalViews` / `totalLikes` / `totalComments` / 대표 영상 + 좋아요 TOP 2 댓글
   - 동일 engagement score (합산값 기준)으로 정렬
   - **🆕 댓글 언어 분포**: 작품마다 `🌍 🇺🇸 88% · 🇰🇷 3% · 🇯🇵 3% · 🌐 6%` 형식으로 글로벌 팬 지형 표시. franc 라이브러리 + Unicode 분류로 댓글 언어 감지 ([src/lib/langDetect.ts](src/lib/langDetect.ts))
+  - **🆕 자주 인용·반복 phrase (💎)**: 따옴표 안 인용 + 4-7 word n-gram 반복 추출. catchphrase·기대 멘트 자동 감지 (예: "reminds me of night has come" 2회, "ready for cha eunwoo as lee woonjung" 2회)
+  - **🆕 토론 핫스팟 (🔥)**: 답글 수 가장 많은 댓글 (좋아요와 다른 차원). "이 작품 어떤 댓글로 토론하나" 가시화 (예: 답글 51개 — 다른 드라마와 비교 토론 중)
 - **댓글 한국어 번역** ([src/pipeline/translateYoutube.ts](src/pipeline/translateYoutube.ts)): 작품별 카드의 댓글을 Groq AI로 번역 → `textKo` 필드. 화면에선 한글 우선, hover 시 영문 원본
 - **콘텐츠 유형 분류**: scene (MV/명장면/트레일러 흡수) / meme / edit / reaction / review / actor / other
 - **캐시**: `mdl_cache` 테이블 (key `youtube_buzz_v3`), TTL **3시간**. v3 = contentGroups + commentCount + 한국어 번역 포함

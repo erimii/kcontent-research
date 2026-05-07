@@ -408,6 +408,7 @@ export interface YoutubeComment {
   author: string
   text: string
   likes: number
+  replyCount?: number    // 답글 수 (토론 핫스팟 식별용)
 }
 
 export type YoutubeChannelType = 'official' | 'influencer' | 'community'
@@ -444,9 +445,16 @@ export interface YoutubeTopComment {
   textKo?: string                // 한국어 번역 (Groq AI, 캐시됨)
   author: string
   likes: number
+  replyCount?: number            // 답글 수 (토론 핫스팟)
   videoTitle: string
   videoId: string
   videoChannel: string
+}
+
+export interface YoutubeQuotedPhrase {
+  phrase: string                 // 정규화된 catchphrase (10-80자)
+  count: number                  // 등장 빈도
+  sampleVideoTitle: string       // 가장 많이 등장한 영상
 }
 
 export interface YoutubeLanguageStat {
@@ -467,6 +475,8 @@ export interface YoutubeContentGroup {
   topVideoTitle: string
   topVideoThumbnail?: string
   topComments: YoutubeTopComment[]  // 이 작품 영상들의 댓글 중 좋아요 TOP 2
+  discussionHotspot?: YoutubeTopComment  // 답글 가장 많은 댓글 (토론 중심)
+  quotedPhrases: YoutubeQuotedPhrase[]  // 자주 인용·반복되는 catchphrase TOP 5
   languageDistribution: YoutubeLanguageStat[]  // 댓글 언어 분포 (글로벌 팬 지형)
   matchSource: 'known' | 'trailer-pattern' | 'show-name'
 }

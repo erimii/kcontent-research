@@ -19,6 +19,7 @@ import type {
   YoutubeContentGroup,
   YoutubeTopComment,
   YoutubeLanguageStat,
+  YoutubeQuotedPhrase,
 } from '../types/index.js'
 import { crawlYoutubeBuzz } from '../crawlers/youtube.js'
 import { KNOWN_DRAMAS_STATIC } from '../data/known-dramas-static.js'
@@ -194,6 +195,141 @@ function getCommentCount(v: YoutubeVideo): number {
     : (v.comments?.length || 0)
 }
 
+// ── 명대사 / catchphrase 추출 ───────────────────────────────
+// 1) 따옴표 안 phrase (영어·한글 인용)
+// 2) 반복 문장 (같은 문장이 ≥2개 댓글에 등장)
+const QUOTE_PATTERNS = [
+  /"([^"]{6,80})"/g,      // 영어 큰따옴표
+  /「([^」]{4,80})」/g,    // 한국어 따옴표 1
+  /『([^』]{4,80})』/g,    // 한국어 따옴표 2
+]
+const GENERIC_PHRASES = new Set([
+  'amazing', 'wow', 'love this', 'love it', 'so good', 'perfect',
+  'masterpiece', 'iconic', 'literally me', 'me too', 'same',
+  '대박', '최고', '와', '진짜', '정말',
+])
+
+function normalizePhrase(s: string): string {
+  return s.toLowerCase()
+    .replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}]/gu, '')  // 이모지 제거
+    .replace(/[!?.,;:'"…"""」「『』]+$/, '')  // 끝 punctuation
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isGenericPhrase(phrase: string): boolean {
+  const lower = phrase.toLowerCase().trim()
+  if (lower.length < 6) return true
+  if (GENERIC_PHRASES.has(lower)) return true
+  // 단어 1개 또는 2개 매우 짧은 phrase 제외 (예: "so cute")
+  if (lower.split(/\s+/).length < 2) return true
+  return false
+}
+
+// n-gram (4-7 word) 추출 — 짧은 catchphrase 잡기
+const NGRAM_STOPWORDS = new Set([
+  'a','an','the','and','or','but','is','are','was','were','be','been','have','has','had',
+  'do','does','did','will','would','should','could','can','this','that','these','those',
+  'i','you','he','she','it','we','they','my','your','his','her','our','their',
+  'in','on','at','to','for','with','about','from','of','as','by',
+  'so','if','because','then','here','there','when','where','why','how','what','who',
+])
+
+function extractNgramPhrases(texts: string[]): Map<string, { count: number; original: string }> {
+  const acc = new Map<string, { count: number; original: string }>()
+  // 같은 댓글 내 같은 phrase는 1회만 카운트 (스팸 방지)
+  for (const text of texts) {
+    if (!text) continue
+    const cleaned = text.toLowerCase()
+      .replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}]/gu, ' ')  // 이모지 → space
+      .replace(/[^\p{L}\p{N}\s'-]/gu, ' ')                       // 특수문자 → space
+    const tokens = cleaned.split(/\s+/).filter((t) => t.length > 0)
+    const seenInThisText = new Set<string>()
+    // 4-7 word window
+    for (let n = 4; n <= 7; n++) {
+      for (let i = 0; i + n <= tokens.length; i++) {
+        const slice = tokens.slice(i, i + n)
+        // 첫·마지막 단어가 stopword면 스킵
+        if (NGRAM_STOPWORDS.has(slice[0])) continue
+        if (NGRAM_STOPWORDS.has(slice[slice.length - 1])) continue
+        // 모두 stopword만이면 스킵
+        if (slice.every((t) => NGRAM_STOPWORDS.has(t) || t.length < 3)) continue
+        const phrase = slice.join(' ')
+        if (phrase.length < 12 || phrase.length > 60) continue
+        if (seenInThisText.has(phrase)) continue
+        seenInThisText.add(phrase)
+        const ex = acc.get(phrase)
+        if (ex) ex.count++
+        else acc.set(phrase, { count: 1, original: phrase })
+      }
+    }
+  }
+  return acc
+}
+
+function extractQuotedPhrases(texts: string[], topN: number = 5): YoutubeQuotedPhrase[] {
+  const acc = new Map<string, { count: number; sample: string; original: string }>()
+
+  for (const text of texts) {
+    if (!text) continue
+
+    // 1. 따옴표 안 phrase 추출
+    for (const re of QUOTE_PATTERNS) {
+      let m
+      const reCopy = new RegExp(re.source, re.flags)
+      while ((m = reCopy.exec(text)) !== null) {
+        const raw = m[1].trim()
+        const norm = normalizePhrase(raw)
+        if (!norm || isGenericPhrase(norm)) continue
+        const ex = acc.get(norm)
+        if (ex) ex.count++
+        else acc.set(norm, { count: 1, sample: text.slice(0, 100), original: raw })
+      }
+    }
+
+    // 2. 짧은 문장 (10-80자) 반복 검출
+    const trimmed = text.trim()
+    if (trimmed.length >= 10 && trimmed.length <= 80) {
+      const norm = normalizePhrase(trimmed)
+      if (norm && !isGenericPhrase(norm)) {
+        const ex = acc.get(norm)
+        if (ex) ex.count++
+        else acc.set(norm, { count: 1, sample: trimmed.slice(0, 100), original: trimmed })
+      }
+    }
+  }
+
+  // 3. n-gram (4-7 word) 반복 추가
+  const ngrams = extractNgramPhrases(texts)
+  for (const [phrase, info] of ngrams) {
+    if (info.count < 2) continue
+    if (acc.has(phrase)) {
+      // 따옴표/문장 매칭과 중복: 더 큰 count 유지
+      const ex = acc.get(phrase)!
+      if (info.count > ex.count) ex.count = info.count
+    } else {
+      acc.set(phrase, { count: info.count, sample: '', original: info.original })
+    }
+  }
+
+  // 결과 dedupe: 더 긴 phrase가 더 짧은 phrase를 포함하면 짧은 거 제거
+  const all = [...acc.entries()]
+    .filter(([, info]) => info.count >= 2)
+    .sort((a, b) => b[1].count - a[1].count || b[0].length - a[0].length)
+
+  const kept: typeof all = []
+  for (const [norm, info] of all) {
+    const isContained = kept.some(([keptNorm]) => keptNorm.includes(norm) && keptNorm !== norm)
+    if (!isContained) kept.push([norm, info])
+  }
+
+  return kept.slice(0, topN).map(([, info]) => ({
+    phrase: info.original.length > 80 ? info.original.slice(0, 77) + '…' : info.original,
+    count: info.count,
+    sampleVideoTitle: info.sample,
+  }))
+}
+
 // 댓글 언어 분포 계산 (작품별 글로벌 팬 지형)
 function computeLanguageDistribution(texts: string[]): YoutubeLanguageStat[] {
   if (texts.length === 0) return []
@@ -276,14 +412,22 @@ function buildContentGroups(videos: YoutubeVideo[], n: number): YoutubeContentGr
         text: c.text,
         author: c.author,
         likes: c.likes || 0,
+        replyCount: c.replyCount || 0,
         videoTitle: v.title,
         videoId: v.id,
         videoChannel: v.channel,
       }))
     )
     const topComments = allComments.sort((a, b) => b.likes - a.likes).slice(0, 2)
+    // 답글 수 가장 많은 댓글 = 토론 핫스팟 (좋아요 TOP과 다른 차원)
+    const sortedByReplies = [...allComments].sort((a, b) => (b.replyCount || 0) - (a.replyCount || 0))
+    const discussionHotspot = sortedByReplies[0] && (sortedByReplies[0].replyCount || 0) >= 2
+      ? sortedByReplies[0]
+      : undefined
     // 작품별 댓글 언어 분포 (전체 댓글 풀 기준)
     const languageDistribution = computeLanguageDistribution(allComments.map((c) => c.text))
+    // 자주 인용·반복되는 catchphrase
+    const quotedPhrases = extractQuotedPhrases(allComments.map((c) => c.text), 5)
     return {
       title: e.title,
       videoCount: e.videos.length,
@@ -294,6 +438,8 @@ function buildContentGroups(videos: YoutubeVideo[], n: number): YoutubeContentGr
       topVideoTitle: topVideo.title,
       topVideoThumbnail: topVideo.thumbnail,
       topComments,
+      discussionHotspot,
+      quotedPhrases,
       languageDistribution,
       matchSource: e.matchSource,
     }
