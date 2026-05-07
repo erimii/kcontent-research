@@ -1193,11 +1193,13 @@ app.get('/api/tiktok', async (_req, res) => {
 app.post('/api/tiktok/refresh', async (req, res) => {
   try {
     // force=true → Discovery cron 즉시 실행 + 기다림 (사용자 결정)
+    // /refresh는 fast mode (2 키워드 × 30s sleep ≈ 1분 — 사용자 대기 짧게)
+    // cron은 thorough mode (7 키워드 × 90s sleep ≈ 11분 — 풍부한 누적)
     const force = req.body?.force === true
     if (force) {
-      console.log('[TikTok] /refresh force=true → Discovery cron 즉시 실행')
+      console.log('[TikTok] /refresh force=true → Discovery [fast] 즉시 실행')
       const { runTiktokDiscovery } = await import('./cron/tiktokDiscovery.js')
-      const r = await runTiktokDiscovery()
+      const r = await runTiktokDiscovery('fast')
       saveCrawlLog('tiktok', r.total, r.ok ? 'success' : 'failed', r.error)
       // 분석 캐시 무효화 후 새로 빌드
       try {
@@ -1310,15 +1312,16 @@ app.listen(PORT, async () => {
     const { runTiktokCleanup } = await import('./cron/tiktokCleanup.js')
     const { countTiktokVideos } = await import('./db/tiktokVideos.js')
 
-    cron.schedule('0 */6 * * *', () => { runTiktokDiscovery().catch((e) => console.error('[cron Discovery]', e)) })
+    cron.schedule('0 */6 * * *', () => { runTiktokDiscovery('thorough').catch((e) => console.error('[cron Discovery]', e)) })
     cron.schedule('*/30 * * * *', () => { runTiktokUpdate().catch((e) => console.error('[cron Update]', e)) })
     cron.schedule('0 3 * * *', () => { runTiktokCleanup().catch((e) => console.error('[cron Cleanup]', e)) })
     console.log(`[TikTok cron] 등록 완료 — Discovery 6h / Update 30min / Cleanup 03:00`)
 
     // 첫 가동 시 DB 비어있으면 즉시 한 번 실행 (백그라운드)
     if (countTiktokVideos(30) === 0) {
-      console.log('[TikTok cron] DB 비어있음 — Discovery 즉시 실행 (백그라운드)')
-      runTiktokDiscovery().catch((e) => console.error('[cron initial Discovery]', e))
+      console.log('[TikTok cron] DB 비어있음 — Discovery [fast] 즉시 실행 (~1분, 백그라운드)')
+      // 첫 가동은 fast mode로 빠르게 채움. cron이 6시간마다 thorough로 추가 누적
+      runTiktokDiscovery('fast').catch((e) => console.error('[cron initial Discovery]', e))
     } else {
       console.log(`[TikTok cron] DB 영상 수 ${countTiktokVideos(30)}개 (30일 이내) — Discovery 다음 슬롯에 실행`)
     }
