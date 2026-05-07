@@ -13,18 +13,13 @@ import type {
 } from '../types/index.js'
 
 // ── 검색 키워드 (단일 영문 단어만 — 띄어쓰기는 라이브러리 retry 누적으로 매우 느려짐) ──
-// 전체 키워드 풀 (cron thorough 모드)
-const KEYWORDS_FULL = ['kdrama', 'koreandrama', 'kdramareview', 'kdramareaction', 'kdramaclip', 'kvarietyshow', 'lovelyrunner']
-// 빠른 force refresh 용 (2개)
-const KEYWORDS_FAST = ['kdrama', 'lovelyrunner']
-const PAGES_PER_KEYWORD = 1
+// ── 검색 키워드 (단일 영문 단어만 — 띄어쓰기는 라이브러리 retry 누적으로 매우 느려짐) ──
+const KEYWORDS = ['kdrama', 'koreandrama', 'kdramareview', 'kdramareaction', 'kdramaclip', 'kvarietyshow', 'lovelyrunner']
+const PAGES_PER_KEYWORD = 1              // page 1만 (페이지 2-3은 거의 실패하고 throttle 패턴만 만듦)
 const PER_REQUEST_TIMEOUT_MS = 10000
-const SEARCH_CONCURRENCY = 1
-// TikTok video search는 IP 단위 분당 quota 매우 strict — 키워드 간 충분한 간격 필수
-// fast(force refresh): 30초 / thorough(cron): 90초
-const KEYWORD_SLEEP_FAST_MS = 30000
-const KEYWORD_SLEEP_THOROUGH_MS = 90000
-const PERSISTENT_RETRY_DELAYS: number[] = []
+const SEARCH_CONCURRENCY = 1             // 순차 (사람처럼 한 번에 한 키워드씩 검색)
+const KEYWORD_SLEEP_MS = 30000           // 키워드 간 30초 (TikTok 분당 quota 회피)
+const PERSISTENT_RETRY_DELAYS: number[] = []  // retry 없음 — 같은 키워드 반복 호출이 가장 의심받는 패턴
 
 // ── 쿠키 로드 (mtime 기반 cache invalidation) ───────────────
 const COOKIE_PATH = path.join(os.homedir(), 'Desktop/secret/001/tiktok-cookies.json')
@@ -148,15 +143,11 @@ function extractHashtags(caption: string): string[] {
 }
 
 // ── 메인 크롤러 ───────────────────────────────────────────
-export type CrawlMode = 'fast' | 'thorough'
-
 export async function crawlTiktokBuzz(
-  options: { mode?: CrawlMode; keywords?: string[]; keywordSleepMs?: number; perKeywordLimit?: number; topN?: number; commentsPerVideo?: number } = {}
+  options: { keywords?: string[]; perKeywordLimit?: number; topN?: number; commentsPerVideo?: number } = {}
 ): Promise<{ videos: TikTokVideo[]; searchedKeywords: string[] }> {
-  const mode: CrawlMode = options.mode || 'thorough'
   const {
-    keywords = mode === 'fast' ? KEYWORDS_FAST : KEYWORDS_FULL,
-    keywordSleepMs = mode === 'fast' ? KEYWORD_SLEEP_FAST_MS : KEYWORD_SLEEP_THOROUGH_MS,
+    keywords = KEYWORDS,
     perKeywordLimit = 20,
     topN = 30,
     commentsPerVideo = 20,
@@ -177,7 +168,7 @@ export async function crawlTiktokBuzz(
   // 1. 키워드별 검색 — 끈질긴 retry (백오프) + 동시성 낮춤
   // 라이브러리 patch로 작업당 wall-clock 6초 → 같은 시간에 더 많이 시도 가능
   // 한 작업이 실패하면 4s → 12s → 30s 간격으로 최대 4회 끈질기게 재시도 (rate limit 자연 풀림 활용)
-  console.log(`  [TikTok] [${mode}] ${keywords.length}개 키워드 × ${PAGES_PER_KEYWORD}페이지 (동시 ${SEARCH_CONCURRENCY}, sleep ${keywordSleepMs / 1000}s)...`)
+  console.log(`  [TikTok] ${keywords.length}개 키워드 × ${PAGES_PER_KEYWORD}페이지 (동시 ${SEARCH_CONCURRENCY}, sleep ${KEYWORD_SLEEP_MS / 1000}s)...`)
   const allRaw: any[] = []
   type Task = { kw: string; page: number }
   const allTasks: Task[] = []
@@ -219,7 +210,7 @@ export async function crawlTiktokBuzz(
     const slice = allTasks.slice(i, i + SEARCH_CONCURRENCY)
     const settled = await Promise.allSettled(slice.map(persistentSearch))
     for (const s of settled) if (s.status === 'fulfilled') results.push(s.value)
-    if (i + SEARCH_CONCURRENCY < allTasks.length) await new Promise((res) => setTimeout(res, keywordSleepMs))
+    if (i + SEARCH_CONCURRENCY < allTasks.length) await new Promise((res) => setTimeout(res, KEYWORD_SLEEP_MS))
   }
 
   let totalTries = 0
