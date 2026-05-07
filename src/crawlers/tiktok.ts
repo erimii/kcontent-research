@@ -85,7 +85,9 @@ const NON_K_DRAMA_TITLES = [
   'meteor garden', 'descendants of the sun chinese', "scent of time",
 ]
 const NON_NA_SCRIPT_RE = /[ऀ-ॿ؀-ۿЀ-ӿ฀-๿]/  // Devanagari + Arabic + Cyrillic + Thai
-const NON_NA_LATIN_WORDS_RE = /\b(bhai|yaar|matlab|achha|kya hai|mera|hamara|tumhara|bik gaya|ek number|talaga|naman po)\b/i
+// 베트남어 고유 글자 (đ, ơ, ư + 베트남식 diacritics ấầẩẫậ ắằẳẵặ ếềểễệ ốồổỗộ ớờởỡợ ứừửữự ýỳỷỹỵ)
+const VIETNAMESE_RE = /[đĐơƠưƯấầẩẫậắằẳẵặếềểễệốồổỗộớờởỡợứừửữựýỳỷỹỵ]/
+const NON_NA_LATIN_WORDS_RE = /\b(bhai|yaar|matlab|achha|kya hai|mera|hamara|tumhara|bik gaya|ek number|talaga|naman po|phim|hàn quốc|không|được|người|nhất|mong|mng|cùng|mọi|đẹp|nhiều|cũng|biết|tất cả)\b/i
 const HINDI_INTERMIX_RE = /\b(bhai|yaar)\b/i
 const NON_NA_REGIONAL_OFFICIAL_RE = /\b(philippines|filipino|india|indonesia|vietnam|malaysia|thailand|brasil|brazil|brasileir|latino|latina|español|espanol|deutschland|polska|t[üu]rkiye|t[üu]rkce|arabia|arabic)\b/i
 
@@ -116,6 +118,7 @@ function hasKContentMarker(caption: string, channelMeta: string, hashtags: strin
 
   // 비-NA 언어 신호
   if (NON_NA_SCRIPT_RE.test(fullText)) return false
+  if (VIETNAMESE_RE.test(fullText)) return false
   if (NON_NA_LATIN_WORDS_RE.test(fullText)) return false
   if (HINDI_INTERMIX_RE.test(fullText)) return false
 
