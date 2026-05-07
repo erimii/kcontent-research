@@ -312,15 +312,35 @@ function extractQuotedPhrases(texts: string[], topN: number = 5): YoutubeQuotedP
     }
   }
 
-  // 결과 dedupe: 더 긴 phrase가 더 짧은 phrase를 포함하면 짧은 거 제거
+  // 결과 dedupe (2단계):
+  // 1) substring containment — 더 긴 phrase가 더 짧은 phrase를 포함하면 짧은 거 제거
+  // 2) 토큰 유사도 — 두 phrase가 핵심 단어 60% 이상 공유하면 유사로 판단해 count 큰 쪽만 유지
+  //    (예: "night has come vibes" vs "reminds me of night has come" 같은 주제 묶음)
   const all = [...acc.entries()]
     .filter(([, info]) => info.count >= 2)
     .sort((a, b) => b[1].count - a[1].count || b[0].length - a[0].length)
 
+  const similarityTokens = (s: string): Set<string> =>
+    new Set(s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter((t) => t.length >= 3))
+
+  const TOKEN_OVERLAP_THRESHOLD = 0.5
+
   const kept: typeof all = []
   for (const [norm, info] of all) {
+    // 1) substring containment
     const isContained = kept.some(([keptNorm]) => keptNorm.includes(norm) && keptNorm !== norm)
-    if (!isContained) kept.push([norm, info])
+    if (isContained) continue
+    // 2) 토큰 유사도 — kept 항목과 핵심 단어 ≥60% 공유 시 유사로 판단
+    const tokensB = similarityTokens(norm)
+    const isSimilar = kept.some(([keptNorm]) => {
+      const tokensA = similarityTokens(keptNorm)
+      const minLen = Math.min(tokensA.size, tokensB.size)
+      if (minLen === 0) return false
+      let common = 0
+      for (const t of tokensA) if (tokensB.has(t)) common++
+      return (common / minLen) >= TOKEN_OVERLAP_THRESHOLD
+    })
+    if (!isSimilar) kept.push([norm, info])
   }
 
   return kept.slice(0, topN).map(([, info]) => ({
