@@ -710,28 +710,33 @@ function renderYoutubeCard(s) {
                 </div>
                 ${(g.quotedPhrases || []).length > 0 ? `
                   <div style="margin-top:4px;padding:6px 8px;background:rgba(251,191,36,0.06);border-left:2px solid #fbbf24;border-radius:3px">
-                    <div style="font-size:10px;color:#fbbf24;font-weight:700;text-transform:uppercase;margin-bottom:3px">💎 자주 인용·반복</div>
-                    ${(g.quotedPhrases || []).slice(0, 5).map(qp => `
-                      <div style="font-size:11px;line-height:1.5;color:var(--text-primary)" title="${escHtml(qp.phrase)}">
-                        "${escHtml(ytTruncate(qp.phrase, 80))}" <span style="color:var(--text-muted);font-size:10px">— ${qp.count}회</span>
-                      </div>`).join('')}
-                  </div>` : ''}
-                ${(g.topComments || []).length > 0 ? `
-                  <div style="display:flex;flex-direction:column;gap:4px;margin-top:2px">
-                    ${(g.topComments || []).slice(0, 2).map(c => {
-                      const display = c.textKo || c.text
-                      const tooltip = c.textKo ? c.text : c.text
+                    <div style="font-size:10px;color:#fbbf24;font-weight:700;margin-bottom:3px">💎 자주 반복되는 댓글 표현</div>
+                    ${(g.quotedPhrases || []).slice(0, 5).map(qp => {
+                      const display = qp.phraseKo || qp.phrase
                       return `
-                      <div style="font-size:11.5px;line-height:1.5;color:var(--text-primary);padding:6px 8px;background:rgba(255,255,255,0.025);border-radius:4px" title="${escHtml(tooltip)}">
-                        💬 "${escHtml(ytTruncate(display, 100))}" <span style="color:var(--text-muted);font-size:10px">— 👍 ${fmtViews(c.likes)}</span>
+                      <div style="font-size:11px;line-height:1.5;color:var(--text-primary)" title="${escHtml(qp.phrase)}">
+                        "${escHtml(ytTruncate(display, 80))}" <span style="color:var(--text-muted);font-size:10px">— ${qp.count}회</span>
                       </div>`
                     }).join('')}
                   </div>` : ''}
+                ${(g.topComments || []).length > 0 ? `
+                  <div style="margin-top:4px">
+                    <div style="font-size:10px;color:#10b981;font-weight:700;margin-bottom:3px">💬 좋아요 많은 댓글 TOP ${(g.topComments || []).length}</div>
+                    <div style="display:flex;flex-direction:column;gap:4px">
+                    ${(g.topComments || []).slice(0, 2).map(c => {
+                      const display = c.textKo || c.text
+                      return `
+                      <div style="font-size:11.5px;line-height:1.5;color:var(--text-primary);padding:6px 8px;background:rgba(255,255,255,0.025);border-radius:4px" title="${escHtml(c.text)}">
+                        "${escHtml(ytTruncate(display, 100))}" <span style="color:var(--text-muted);font-size:10px">— 👍 ${fmtViews(c.likes)}</span>
+                      </div>`
+                    }).join('')}
+                    </div>
+                  </div>` : ''}
                 ${g.discussionHotspot ? `
                   <div style="margin-top:4px;padding:6px 8px;background:rgba(167,139,250,0.06);border-left:2px solid #a78bfa;border-radius:3px;font-size:11px;line-height:1.5" title="${escHtml(g.discussionHotspot.text)}">
-                    <span style="color:#a78bfa;font-weight:700;font-size:10px;text-transform:uppercase">🔥 토론 핫스팟</span>
+                    <div style="color:#a78bfa;font-weight:700;font-size:10px">🔥 답글 가장 많은 댓글</div>
                     <div style="color:var(--text-primary);margin-top:2px">"${escHtml(ytTruncate(g.discussionHotspot.textKo || g.discussionHotspot.text, 100))}"</div>
-                    <div style="color:var(--text-muted);font-size:10px;margin-top:2px">💬 ${g.discussionHotspot.replyCount}개 답글 · 👍 ${fmtViews(g.discussionHotspot.likes)}</div>
+                    <div style="color:var(--text-muted);font-size:10px;margin-top:2px">💬 답글 ${g.discussionHotspot.replyCount}개 · 👍 ${fmtViews(g.discussionHotspot.likes)}</div>
                   </div>` : ''}
               </a>`).join('')}
           </div>

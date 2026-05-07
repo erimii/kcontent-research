@@ -452,9 +452,10 @@ export interface YoutubeTopComment {
 }
 
 export interface YoutubeQuotedPhrase {
-  phrase: string                 // 정규화된 catchphrase (10-80자)
+  phrase: string                 // 원문 catchphrase
+  phraseKo?: string              // 한국어 번역 (Groq AI)
   count: number                  // 등장 빈도
-  sampleVideoTitle: string       // 가장 많이 등장한 영상
+  sampleVideoTitle: string
 }
 
 export interface YoutubeLanguageStat {
