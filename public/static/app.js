@@ -3262,6 +3262,7 @@ async function init() {
     setTimeout(() => { if (typeof loadMdlSummary === 'function') loadMdlSummary(false) }, 100)
     setTimeout(() => { if (typeof loadGTrendsSummary === 'function') loadGTrendsSummary(false) }, 100)
     setTimeout(() => { if (typeof loadYoutubeSummary === 'function') loadYoutubeSummary(false) }, 100)
+    setTimeout(() => { if (typeof loadTiktokSummary === 'function') loadTiktokSummary(false) }, 100)
   }
 }
 
