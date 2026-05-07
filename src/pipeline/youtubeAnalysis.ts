@@ -18,9 +18,11 @@ import type {
   YoutubePhrase,
   YoutubeContentGroup,
   YoutubeTopComment,
+  YoutubeLanguageStat,
 } from '../types/index.js'
 import { crawlYoutubeBuzz } from '../crawlers/youtube.js'
 import { KNOWN_DRAMAS_STATIC } from '../data/known-dramas-static.js'
+import { detectLang, LANG_META } from '../lib/langDetect.js'
 
 const CHANNEL_TYPE_LABEL: Record<YoutubeChannelType, string> = {
   official: '✓ 공식 (Netflix·방송사·엔터사)',
@@ -192,6 +194,46 @@ function getCommentCount(v: YoutubeVideo): number {
     : (v.comments?.length || 0)
 }
 
+// 댓글 언어 분포 계산 (작품별 글로벌 팬 지형)
+function computeLanguageDistribution(texts: string[]): YoutubeLanguageStat[] {
+  if (texts.length === 0) return []
+  const counts = new Map<string, number>()
+  for (const t of texts) {
+    const lang = detectLang(t)
+    // 'unknown' 또는 LANG_META에 없는 언어(franc 오분류 가능)는 'other'에 흡수
+    const key = (lang === 'unknown' || !LANG_META[lang]) ? 'other' : lang
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  const total = texts.length
+
+  // 'other'는 항상 마지막에. 나머지는 count 내림차순
+  const otherCount = counts.get('other') || 0
+  counts.delete('other')
+  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1])
+
+  const TOP_N = 5
+  const top = sorted.slice(0, TOP_N)
+  const restCount = sorted.slice(TOP_N).reduce((s, [, c]) => s + c, 0) + otherCount
+
+  const stats: YoutubeLanguageStat[] = top.map(([lang, count]) => ({
+    lang,
+    flag: LANG_META[lang]?.flag || '🌐',
+    label: LANG_META[lang]?.label || lang,
+    count,
+    percent: Math.round((count / total) * 100),
+  }))
+  if (restCount > 0) {
+    stats.push({
+      lang: 'other',
+      flag: '🌐',
+      label: '기타',
+      count: restCount,
+      percent: Math.round((restCount / total) * 100),
+    })
+  }
+  return stats
+}
+
 function buildContentGroups(videos: YoutubeVideo[], n: number): YoutubeContentGroup[] {
   type Acc = {
     title: string
@@ -240,6 +282,8 @@ function buildContentGroups(videos: YoutubeVideo[], n: number): YoutubeContentGr
       }))
     )
     const topComments = allComments.sort((a, b) => b.likes - a.likes).slice(0, 2)
+    // 작품별 댓글 언어 분포 (전체 댓글 풀 기준)
+    const languageDistribution = computeLanguageDistribution(allComments.map((c) => c.text))
     return {
       title: e.title,
       videoCount: e.videos.length,
@@ -250,6 +294,7 @@ function buildContentGroups(videos: YoutubeVideo[], n: number): YoutubeContentGr
       topVideoTitle: topVideo.title,
       topVideoThumbnail: topVideo.thumbnail,
       topComments,
+      languageDistribution,
       matchSource: e.matchSource,
     }
   })

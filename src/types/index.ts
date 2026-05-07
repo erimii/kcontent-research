@@ -449,6 +449,14 @@ export interface YoutubeTopComment {
   videoChannel: string
 }
 
+export interface YoutubeLanguageStat {
+  lang: string                   // ISO 639-1 코드 ('en','ko','es', ...)
+  flag: string                   // 🇺🇸
+  label: string                  // 'English'
+  count: number                  // 댓글 수
+  percent: number                // 0-100
+}
+
 export interface YoutubeContentGroup {
   title: string                  // 정규화된 작품명 (예: "If Wishes Could Kill")
   videoCount: number
@@ -459,6 +467,7 @@ export interface YoutubeContentGroup {
   topVideoTitle: string
   topVideoThumbnail?: string
   topComments: YoutubeTopComment[]  // 이 작품 영상들의 댓글 중 좋아요 TOP 2
+  languageDistribution: YoutubeLanguageStat[]  // 댓글 언어 분포 (글로벌 팬 지형)
   matchSource: 'known' | 'trailer-pattern' | 'show-name'
 }
 

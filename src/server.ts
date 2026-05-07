@@ -476,6 +476,10 @@ app.get('/api/newsletter/:id', (req, res) => {
                 <div style="font-size:10px;color:#9ba3bf;margin-top:3px">
                   영상 ${g.videoCount} · 👁 ${(g.totalViews || 0).toLocaleString()} · 👍 ${(g.totalLikes || 0).toLocaleString()} · 💬 ${(g.totalComments || 0).toLocaleString()}
                 </div>
+                ${(g.languageDistribution || []).length > 0 ? `
+                  <div style="font-size:10px;color:#9ba3bf;margin-top:2px">
+                    🌍 ${(g.languageDistribution || []).slice(0, 5).map((L: any) => `${L.flag} ${L.percent}%`).join(' · ')}
+                  </div>` : ''}
                 ${(g.topComments || []).slice(0, 1).map((c: any) => {
                   const display = c.textKo || c.text || ''
                   return `

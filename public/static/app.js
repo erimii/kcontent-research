@@ -702,6 +702,10 @@ function renderYoutubeCard(s) {
                     <div style="font-size:10px;color:var(--text-muted);margin-top:3px">
                       영상 ${g.videoCount} · 👁 ${fmtViews(g.totalViews)} · 👍 ${fmtViews(g.totalLikes)} · 💬 ${fmtViews(g.totalComments)}
                     </div>
+                    ${(g.languageDistribution || []).length > 0 ? `
+                      <div style="font-size:10px;color:var(--text-muted);margin-top:3px;line-height:1.5">
+                        🌍 ${(g.languageDistribution || []).map(L => `<span title="${escHtml(L.label)}: ${L.count} 댓글" style="margin-right:7px">${L.flag} ${L.percent}%</span>`).join('')}
+                      </div>` : ''}
                   </div>
                 </div>
                 ${(g.topComments || []).length > 0 ? `

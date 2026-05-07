@@ -191,6 +191,7 @@ TOP5 포스트마다:
   - 작품 식별 3단계: ① `KNOWN_DRAMAS_STATIC` 사전 매칭 (긴 작품명 우선) → ② 트레일러 제목 패턴 (`X | Official Trailer/Teaser/Episode/Recap/Review/Reaction`) → ③ K-쇼 화이트리스트 (`Running Man`/`Knowing Bros` 등)
   - 작품 단위 합산: `videoCount` / `totalViews` / `totalLikes` / `totalComments` / 대표 영상 + 좋아요 TOP 2 댓글
   - 동일 engagement score (합산값 기준)으로 정렬
+  - **🆕 댓글 언어 분포**: 작품마다 `🌍 🇺🇸 88% · 🇰🇷 3% · 🇯🇵 3% · 🌐 6%` 형식으로 글로벌 팬 지형 표시. franc 라이브러리 + Unicode 분류로 댓글 언어 감지 ([src/lib/langDetect.ts](src/lib/langDetect.ts))
 - **댓글 한국어 번역** ([src/pipeline/translateYoutube.ts](src/pipeline/translateYoutube.ts)): 작품별 카드의 댓글을 Groq AI로 번역 → `textKo` 필드. 화면에선 한글 우선, hover 시 영문 원본
 - **콘텐츠 유형 분류**: scene (MV/명장면/트레일러 흡수) / meme / edit / reaction / review / actor / other
 - **캐시**: `mdl_cache` 테이블 (key `youtube_buzz_v3`), TTL **3시간**. v3 = contentGroups + commentCount + 한국어 번역 포함
