@@ -183,8 +183,9 @@ async function fetchVideoDetail(yt: any, video: Partial<YoutubeVideo>, maxCommen
 
     let comments: YoutubeComment[] = []
     let commentCount: number | undefined
+    const MAX_PAGES = 6  // 안전 캡 (페이지당 ~20개 → 최대 ~120개)
     try {
-      const cmts = await yt.getComments(video.id)
+      let cmts: any = await yt.getComments(video.id)
       // 총 댓글 수 (가능한 경로 여러 군데 시도)
       const totalText =
         cmts.header?.count?.text ||
@@ -194,24 +195,35 @@ async function fetchVideoDetail(yt: any, video: Partial<YoutubeVideo>, maxCommen
       const parsedTotal = totalText ? viewsToNumber(totalText) : 0
       if (parsedTotal > 0) commentCount = parsedTotal
 
-      const list = cmts.contents || []
-      for (const c of list) {
-        const cm = c.comment
-        if (!cm) continue
-        const text = cm.content?.text || ''
-        if (!text || text.length < 4) continue
-        // reply_count: "3.2K" 같은 문자열 또는 숫자
-        const replyCountRaw = cm.reply_count
-        const replyCount = typeof replyCountRaw === 'number'
-          ? replyCountRaw
-          : (replyCountRaw ? viewsToNumber(String(replyCountRaw)) : 0)
-        comments.push({
-          author: cm.author?.name || 'anon',
-          text: text.slice(0, 800),
-          likes: typeof cm.like_count === 'number' ? cm.like_count : viewsToNumber(cm.like_count || ''),
-          replyCount,
-        })
+      let pageCount = 0
+      while (comments.length < maxComments && pageCount < MAX_PAGES) {
+        const list = cmts.contents || []
+        for (const c of list) {
+          const cm = c.comment
+          if (!cm) continue
+          const text = cm.content?.text || ''
+          if (!text || text.length < 4) continue
+          // reply_count: "3.2K" 같은 문자열 또는 숫자
+          const replyCountRaw = cm.reply_count
+          const replyCount = typeof replyCountRaw === 'number'
+            ? replyCountRaw
+            : (replyCountRaw ? viewsToNumber(String(replyCountRaw)) : 0)
+          comments.push({
+            author: cm.author?.name || 'anon',
+            text: text.slice(0, 800),
+            likes: typeof cm.like_count === 'number' ? cm.like_count : viewsToNumber(cm.like_count || ''),
+            replyCount,
+          })
+          if (comments.length >= maxComments) break
+        }
+        pageCount++
         if (comments.length >= maxComments) break
+        if (!cmts.has_continuation) break
+        try {
+          cmts = await cmts.getContinuation()
+        } catch {
+          break
+        }
       }
     } catch {}
 
@@ -248,7 +260,7 @@ export async function crawlYoutubeBuzz(
     hashtags = HASHTAGS,
     perTagLimit = 20,
     topN = 30,
-    commentsPerVideo = 30,
+    commentsPerVideo = 100,
   } = options
 
   // youtubei.js는 ESM-only — dynamic import

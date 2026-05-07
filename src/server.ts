@@ -1106,7 +1106,7 @@ app.post('/api/youtube/refresh', async (req, res) => {
 
     console.log('[YouTube] 새 크롤링 시작...')
     const t0 = Date.now()
-    const summary = await buildYoutubeSummary({ topN: 30, commentsPerVideo: 30 })
+    const summary = await buildYoutubeSummary({ topN: 30, commentsPerVideo: 100 })
     saveCrawlLog('youtube', summary.totalVideos, summary.totalVideos > 0 ? 'success' : 'failed')
     if (summary.totalVideos === 0) {
       return res.status(503).json({ ok: false, error: 'YouTube 크롤링 결과 0개' })

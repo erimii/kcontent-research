@@ -13,7 +13,7 @@
   - Reddit Atom RSS (인증 불필요)
   - MyDramaList — Playwright 헤드리스 (Cloudflare 우회)
   - Google Trends — Playwright trending 페이지 스크래핑 (7개 카테고리·시간·geo URL 병합)
-  - YouTube — `youtubei.js` Innertube (무인증, 14개 해시태그 → 영상 30개 + 댓글 ~900개, 2단계 K-content 마커 필터)
+  - YouTube — `youtubei.js` Innertube (무인증, 14개 해시태그 → 영상 30개 + 댓글 ~2,500-3,000개 (영상당 100개, pagination), 2단계 K-content 마커 필터)
   - TikTok — `@tobyg74/tiktok-api-dl` + 사용자 sessionid 쿠키 (5개 키워드 × 2페이지 → 영상 30개 + 댓글 ~450개, 작품·사운드·크리에이터 분석)
 - **프론트**: Vanilla JS SPA (`public/static/app.js`) — 더보기/접기 토글로 스크롤 길이 절반 단축
 
