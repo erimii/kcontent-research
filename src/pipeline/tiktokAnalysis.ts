@@ -210,18 +210,9 @@ function buildTopCreators(videos: TikTokVideo[], n: number): TikTokTopCreator[] 
   return creators.slice(0, n)
 }
 
-// ── 메인 ───────────────────────────────────────────────────
-export async function buildTiktokSummary(
-  options: { keywords?: string[]; topN?: number; commentsPerVideo?: number } = {}
-): Promise<TikTokSummary> {
-  const { videos, searchedKeywords } = await crawlTiktokBuzz({
-    keywords: options.keywords,
-    perKeywordLimit: 20,
-    topN: options.topN ?? 30,
-    commentsPerVideo: options.commentsPerVideo ?? 20,
-  })
-
-  const totalComments = videos.reduce((s, v) => s + v.comments.length, 0)
+// ── DB에 저장된 영상으로 summary 생성 (cron 모드 — crawl 우회) ──
+export function buildSummaryFromVideos(videos: TikTokVideo[], searchedKeywords: string[]): TikTokSummary {
+  const totalComments = videos.reduce((s, v) => s + (v.comments?.length || 0), 0)
   const topVideos = getTopVideos(videos, 30)
   const contentGroups = buildContentGroups(videos, 6)
   const trendingSounds = buildTrendingSounds(videos, 8)
@@ -240,4 +231,17 @@ export async function buildTiktokSummary(
     trendingSounds,
     topCreators,
   }
+}
+
+// ── 메인 (legacy: crawl + 분석 합본) ─────────────────────────
+export async function buildTiktokSummary(
+  options: { keywords?: string[]; topN?: number; commentsPerVideo?: number } = {}
+): Promise<TikTokSummary> {
+  const { videos, searchedKeywords } = await crawlTiktokBuzz({
+    keywords: options.keywords,
+    perKeywordLimit: 20,
+    topN: options.topN ?? 30,
+    commentsPerVideo: options.commentsPerVideo ?? 20,
+  })
+  return buildSummaryFromVideos(videos, searchedKeywords)
 }

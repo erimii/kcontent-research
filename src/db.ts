@@ -79,6 +79,51 @@ export function initDb() {
       translation TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+
+    -- TikTok 영상 저장소 (cron 백그라운드 누적용)
+    CREATE TABLE IF NOT EXISTS tiktok_videos (
+      id TEXT PRIMARY KEY,
+      description TEXT NOT NULL,
+      url TEXT NOT NULL,
+      cover TEXT,
+      duration INTEGER,
+      views INTEGER,
+      likes INTEGER,
+      shares INTEGER,
+      comment_count INTEGER,
+      saved INTEGER,
+      published_at TEXT,
+      create_time INTEGER,
+      author_id TEXT,
+      author_unique_id TEXT,
+      author_nickname TEXT,
+      author_avatar TEXT,
+      author_verified INTEGER,
+      author_signature TEXT,
+      author_follower_count INTEGER,
+      sound_id TEXT,
+      sound_title TEXT,
+      sound_author TEXT,
+      sound_cover TEXT,
+      sound_duration INTEGER,
+      sound_original INTEGER,
+      comments_json TEXT,           -- 댓글 배열 JSON
+      hashtags_json TEXT,           -- 해시태그 배열 JSON
+      channel_type TEXT NOT NULL,   -- 'official' | 'creator' | 'community'
+      first_seen_at INTEGER NOT NULL,
+      last_updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_tt_create_time ON tiktok_videos(create_time DESC);
+    CREATE INDEX IF NOT EXISTS idx_tt_last_updated ON tiktok_videos(last_updated_at);
+    CREATE INDEX IF NOT EXISTS idx_tt_channel_type ON tiktok_videos(channel_type);
+
+    -- TikTok cron 실행 로그 (마지막 Discovery/Update 시각 추적)
+    CREATE TABLE IF NOT EXISTS tiktok_cron_log (
+      task TEXT PRIMARY KEY,        -- 'discovery' | 'update' | 'cleanup'
+      last_run_at INTEGER NOT NULL,
+      last_status TEXT,             -- 'success' | 'failed'
+      last_summary TEXT             -- short JSON summary
+    );
   `)
   console.log(`[DB] 초기화 완료: ${DB_PATH}`)
 }

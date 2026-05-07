@@ -1119,64 +1119,120 @@ app.post('/api/youtube/refresh', async (req, res) => {
 })
 
 // ============================================================
-// TikTok SNS 버즈 분석
+// TikTok SNS 버즈 분석 (cron 누적 모드)
 // ============================================================
-const TT_CACHE_KEY = 'tiktok_buzz_v1'
-const TT_CACHE_TTL_SEC = 3 * 3600  // 3시간
+const TT_ANALYSIS_CACHE_KEY = 'tiktok_analysis_v1'
+const TT_ANALYSIS_TTL_SEC = 30 * 60  // 30분 (분석 결과만 캐시; raw는 DB)
 
-app.get('/api/tiktok', (_req, res) => {
-  try {
-    const cached = getMdlCache<any>(TT_CACHE_KEY)
-    if (!cached) return res.json({ ok: true, summary: null, cached: false })
-    res.json({
-      ok: true,
-      summary: { ...cached.data, cached: true, fetchedAt: cached.fetchedAt, expiresAt: cached.expiresAt },
-      cached: true,
-    })
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) })
+// DB 영상 + 분석 + 번역 → TikTokSummary 합성 (캐시됨)
+async function buildTiktokSummaryFromDb(): Promise<any> {
+  const { getRecentTiktokVideos, getCronLog } = await import('./db/tiktokVideos.js')
+  const { buildTiktokSummary } = await import('./pipeline/tiktokAnalysis.js')
+  const { translateTiktokSummaryInPlace } = await import('./pipeline/translateTiktok.js')
+
+  // crawlTiktokBuzz를 우회 — DB에서 직접 영상 가져옴
+  const videos = getRecentTiktokVideos(30, 500)
+  if (videos.length === 0) return null
+
+  // tiktokAnalysis.ts의 build* 함수들을 직접 호출 (crawl 우회)
+  const totalComments = videos.reduce((s, v) => s + (v.comments?.length || 0), 0)
+  const lastDiscovery = getCronLog('discovery')
+  const lastUpdate = getCronLog('update')
+
+  // engagement 정렬 + 모든 분석 함수 호출 (tiktokAnalysis.ts에서 export 필요)
+  const analysis = await import('./pipeline/tiktokAnalysis.js')
+  // build* 함수가 module-private라 buildTiktokSummary가 우리가 원하는 인터페이스 — 단 그건 crawl 호출함
+  // 우회: 직접 호출 가능한 helper export 추가하거나, summary 구조를 여기서 빌드
+
+  // pipeline/tiktokAnalysis.ts에 buildSummaryFromVideos export 가 있다고 가정 — 없으면 추가 필요
+  const buildSummaryFromVideos = (analysis as any).buildSummaryFromVideos
+  if (typeof buildSummaryFromVideos !== 'function') {
+    throw new Error('buildSummaryFromVideos not exported — pipeline/tiktokAnalysis.ts에 추가 필요')
   }
-})
+  const summary = buildSummaryFromVideos(videos, ['kdrama', 'koreandrama', 'kdramareview', 'kdramareaction', 'kdramaclip', 'kvarietyshow', 'lovelyrunner'])
 
-app.post('/api/tiktok/refresh', async (req, res) => {
+  // 번역
   try {
-    const force = req.body?.force === true
-    if (!force) {
-      const cached = getMdlCache<any>(TT_CACHE_KEY)
-      if (cached) {
-        return res.json({
-          ok: true,
-          summary: { ...cached.data, cached: true, fetchedAt: cached.fetchedAt, expiresAt: cached.expiresAt },
-          cached: true,
-        })
-      }
-    }
+    await translateTiktokSummaryInPlace(summary)
+  } catch (e) {
+    console.warn(`[TikTok] 번역 실패: ${(e as Error).message}`)
+  }
 
-    console.log('[TikTok] 새 크롤링 시작...')
-    const t0 = Date.now()
-    const { buildTiktokSummary } = await import('./pipeline/tiktokAnalysis.js')
-    const summary = await buildTiktokSummary({ topN: 30, commentsPerVideo: 20 })
-    saveCrawlLog('tiktok', summary.totalVideos, summary.totalVideos > 0 ? 'success' : 'failed')
-    if (summary.totalVideos === 0) {
-      return res.status(503).json({ ok: false, error: 'TikTok 크롤링 결과 0개 (쿠키 만료 또는 anti-bot 차단 가능성)' })
+  // 메타: 마지막 cron 실행 시각
+  ;(summary as any).lastDiscoveryAt = lastDiscovery?.lastRunAt || null
+  ;(summary as any).lastUpdateAt = lastUpdate?.lastRunAt || null
+
+  return summary
+}
+
+app.get('/api/tiktok', async (_req, res) => {
+  try {
+    const cached = getMdlCache<any>(TT_ANALYSIS_CACHE_KEY)
+    if (cached) {
+      return res.json({
+        ok: true,
+        summary: { ...cached.data, cached: true, fetchedAt: cached.fetchedAt, expiresAt: cached.expiresAt },
+        cached: true,
+      })
     }
-    // 댓글 한국어 번역
-    try {
-      const { translateTiktokSummaryInPlace } = await import('./pipeline/translateTiktok.js')
-      await translateTiktokSummaryInPlace(summary)
-    } catch (e) {
-      console.warn(`[TikTok] 번역 실패 (영문 그대로): ${(e as Error).message}`)
-    }
-    const ttl = setMdlCache(TT_CACHE_KEY, summary, TT_CACHE_TTL_SEC)
-    console.log(`[TikTok] 완료 (${((Date.now() - t0) / 1000).toFixed(1)}s) - ${summary.totalVideos}개 영상, 댓글 ${summary.totalComments}개`)
+    // 캐시 미스 시 DB에서 즉석 분석 (수백 ms)
+    const summary = await buildTiktokSummaryFromDb()
+    if (!summary) return res.json({ ok: true, summary: null, cached: false })
+    const ttl = setMdlCache(TT_ANALYSIS_CACHE_KEY, summary, TT_ANALYSIS_TTL_SEC)
     res.json({
       ok: true,
       summary: { ...summary, cached: false, fetchedAt: ttl.fetchedAt, expiresAt: ttl.expiresAt },
       cached: false,
     })
   } catch (e) {
-    console.error('[TikTok] 오류:', e)
-    saveCrawlLog('tiktok', 0, 'failed', String(e))
+    console.error('[TikTok] /api/tiktok 오류:', e)
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+app.post('/api/tiktok/refresh', async (req, res) => {
+  try {
+    // force=true → Discovery cron 즉시 실행 + 기다림 (사용자 결정)
+    const force = req.body?.force === true
+    if (force) {
+      console.log('[TikTok] /refresh force=true → Discovery cron 즉시 실행')
+      const { runTiktokDiscovery } = await import('./cron/tiktokDiscovery.js')
+      const r = await runTiktokDiscovery()
+      saveCrawlLog('tiktok', r.total, r.ok ? 'success' : 'failed', r.error)
+      // 분석 캐시 무효화 후 새로 빌드
+      try {
+        const { db } = await import('./db.js')
+        db.prepare('DELETE FROM mdl_cache WHERE key = ?').run(TT_ANALYSIS_CACHE_KEY)
+      } catch {}
+    }
+    const summary = await buildTiktokSummaryFromDb()
+    if (!summary) {
+      return res.status(503).json({ ok: false, error: 'TikTok DB 비어있음 (Discovery cron이 아직 결과 못 가져옴)' })
+    }
+    const ttl = setMdlCache(TT_ANALYSIS_CACHE_KEY, summary, TT_ANALYSIS_TTL_SEC)
+    res.json({
+      ok: true,
+      summary: { ...summary, cached: false, fetchedAt: ttl.fetchedAt, expiresAt: ttl.expiresAt },
+      cached: false,
+    })
+  } catch (e) {
+    console.error('[TikTok] /refresh 오류:', e)
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+// 디버깅·모니터링용 — DB·cron 상태 조회
+app.get('/api/tiktok/status', async (_req, res) => {
+  try {
+    const { countTiktokVideos, getCronLog } = await import('./db/tiktokVideos.js')
+    res.json({
+      ok: true,
+      videoCount: countTiktokVideos(30),
+      lastDiscovery: getCronLog('discovery'),
+      lastUpdate: getCronLog('update'),
+      lastCleanup: getCronLog('cleanup'),
+    })
+  } catch (e) {
     res.status(500).json({ ok: false, error: String(e) })
   }
 })
@@ -1239,11 +1295,36 @@ process.on('unhandledRejection', (reason) => {
 // ============================================================
 // 서버 시작
 // ============================================================
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`\n🚀 K-Content Intelligence Dashboard`)
   console.log(`   http://localhost:${PORT}`)
   console.log(`   데모: POST /api/crawl/demo`)
   console.log(`   크롤링: POST /api/crawl\n`)
+
+  // ──── TikTok cron 등록 ────────────────────────────────────
+  // node-cron: Discovery 6시간(0/6/12/18시), Update 30분, Cleanup 매일 03:00
+  try {
+    const cron = (await import('node-cron')).default
+    const { runTiktokDiscovery } = await import('./cron/tiktokDiscovery.js')
+    const { runTiktokUpdate } = await import('./cron/tiktokUpdate.js')
+    const { runTiktokCleanup } = await import('./cron/tiktokCleanup.js')
+    const { countTiktokVideos } = await import('./db/tiktokVideos.js')
+
+    cron.schedule('0 */6 * * *', () => { runTiktokDiscovery().catch((e) => console.error('[cron Discovery]', e)) })
+    cron.schedule('*/30 * * * *', () => { runTiktokUpdate().catch((e) => console.error('[cron Update]', e)) })
+    cron.schedule('0 3 * * *', () => { runTiktokCleanup().catch((e) => console.error('[cron Cleanup]', e)) })
+    console.log(`[TikTok cron] 등록 완료 — Discovery 6h / Update 30min / Cleanup 03:00`)
+
+    // 첫 가동 시 DB 비어있으면 즉시 한 번 실행 (백그라운드)
+    if (countTiktokVideos(30) === 0) {
+      console.log('[TikTok cron] DB 비어있음 — Discovery 즉시 실행 (백그라운드)')
+      runTiktokDiscovery().catch((e) => console.error('[cron initial Discovery]', e))
+    } else {
+      console.log(`[TikTok cron] DB 영상 수 ${countTiktokVideos(30)}개 (30일 이내) — Discovery 다음 슬롯에 실행`)
+    }
+  } catch (e) {
+    console.error('[TikTok cron] 등록 실패:', e)
+  }
 })
 
 export default app
