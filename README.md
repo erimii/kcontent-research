@@ -15,7 +15,9 @@
   - Google Trends — Playwright trending 페이지 스크래핑 (7개 카테고리·시간·geo URL 병합)
   - YouTube — `youtubei.js` Innertube (무인증, 14개 해시태그 → 영상 30개 + 댓글 ~1,500-3,000개 (영상당 100개, pagination), 2단계 K-content 마커 필터, 다국어 분포·catchphrase·답글 핫스팟)
   - TikTok — `@tobyg74/tiktok-api-dl` + 사용자 sessionid 쿠키 (7개 키워드 × 1페이지 사람 패턴 검색 → 영상 30개 + 댓글, 작품·사운드·크리에이터 분석)
+  - Instagram — `playwright-extra` + stealth 플러그인 + 사용자 sessionid 쿠키 (K-드라마 7개 해시태그 페이지 → Reel 후보 12개씩 detail fetch → hashtag당 score top 5, 글로벌 top 10, top 3은 GraphQL intercept로 댓글 ~50개 deep crawl)
 - **프론트**: Vanilla JS SPA (`public/static/app.js`) — 더보기/접기 토글로 스크롤 길이 절반 단축
+- **번역**: `src/lib/translate.ts` Groq Chat API 래퍼 (`translateOne` / `translateBatch` + 범용 `groqChat` — Instagram 자동 요약 등에 재사용). 텍스트 해시 기반 영구 캐시 (`translation_cache` 테이블)
 
 ---
 
@@ -236,6 +238,41 @@ TOP5 포스트마다:
 
 ---
 
+## Instagram SNS 버즈 통합 (Reel 기반)
+
+**별도 파이프라인** ([src/crawlers/instagram.ts](src/crawlers/instagram.ts) + [src/pipeline/instagramAnalysis.ts](src/pipeline/instagramAnalysis.ts) + [src/pipeline/translateInstagram.ts](src/pipeline/translateInstagram.ts))
+
+- **인증 필수**: Instagram 익명 hashtag 페이지가 login wall로 막혀 사용자 sessionid 쿠키 필수. Cookie-Editor JSON을 `~/Desktop/secret/001/instagram-cookies.json`에 저장 (chmod 600). 헬퍼: [scripts/instagram-login.mjs](scripts/instagram-login.mjs)로 Playwright headed Chromium 띄워 수동 로그인 후 자동 export 가능. 쿠키 mtime 기반 자동 재로드
+- **수집 스택**: `playwright-extra` + `puppeteer-extra-plugin-stealth` (webdriver 숨김·navigator.languages 정규화 등으로 Instagram bot fingerprint 회피)
+- **수집 키워드 (K-드라마 단일 카테고리 집중)**: `#kdrama` `#koreandrama` `#netflixkdrama` `#kdramareview` `#kdramareaction` `#kdramaclip` `#kdramashorts`
+- **4-stage 깔때기 (funnel)**:
+  - **Stage 1 — 후보 수집 + per-hashtag score**: 각 hashtag 페이지에서 카드 최대 16개 추출 → 12개 detail 페이지 fetch → og:description으로 `likeCount` / `commentCount` 파싱 → `score = log10(likes+1)·2 + log10(comments+1)·5` 정렬 → hashtag당 top **5** 채택. 7개 hashtag × 5 = 후보 풀 ~30~35개
+  - **Stage 2 — 글로벌 top 10**: 후보 풀 전체에서 score 재정렬 → 글로벌 top **10** (Reel 카드 표시 대상)
+  - **Stage 3 — deep crawl top 3**: 글로벌 top 3에 대해 Reel 상세 페이지 진입 → GraphQL 댓글 fetch intercept(`/api/v1/media/.../comments/`) 최대 3페이지 → reel당 댓글 ~50개 확보 → 좋아요 top 3을 `representativeComments`로 저장
+  - **Stage 4 — 한국어 자동 반응 요약**: deep crawl된 댓글을 Groq AI로 한국어 bullet 2~3개로 자동 요약 (`reactionSummary`)
+- **2단계 K-content 마커 필터** (TikTok 패턴 재활용):
+  - 비-K 드라마 명시 즉시 탈락 (`cdrama / chinese drama / jdrama / xianxia / wuxia / donghua` 등)
+  - 비-K 해시태그 블랙리스트 (`#cdrama / #jdrama / #xianxia` 등은 `#kdrama` 동반해도 우선 적용)
+  - 비-NA 스크립트 차단 (Devanagari·Cyrillic·Arabic·Thai·Hanzi)
+  - 비-NA 단어 차단 (힌디어 `bhai`/`yaar`, 베트남어 diacritics + 단어, 필리핀어·인도네시아어 마커)
+  - 카테고리별 마커 화이트리스트: kdrama는 한국 드라마 패턴, kmovie/kvariety는 해당 패턴
+- **작품 제목 추출 (이중 모드)**: 명시 패턴(`X | Episode N`, `X — Recap` 등) 우선 → 사전 매칭 (짧은 제목은 word-boundary, 긴 제목은 substring) → 둘 다 실패하면 "작품 미확인 릴스" 가상 그룹에 흡수
+- **반응 유형 분류**: '커플 케미형' / '배우 비주얼형' / '로맨스 설정형' / '명대사형' / '리액션형' 등 자동 태깅 (reel당 최대 2개, 그룹 카드는 소속 reel들의 union 표시)
+- **반복 표현 추출**: HARD/WEAK stopword 분리 + 4~7 word n-gram → catchphrase / 자주 반복 phrase 자동 감지
+- **차단 감지 시 자동 lockout**: hashtag 페이지가 login wall로 리다이렉트되거나 GraphQL 응답이 빈 객체일 경우 즉시 **30분 lockout** 트리거 → 이후 모든 hashtag 스킵 (사용자 IP 누적 위험 차단)
+- **수동 트리거 정책**: cron 백그라운드 미사용. 사용자가 카드의 "새로고침" 버튼을 누를 때만 ~10분 크롤 1회. 첫 로드는 캐시만 표시
+- **댓글 한국어 번역** ([src/pipeline/translateInstagram.ts](src/pipeline/translateInstagram.ts)): 작품별 카드 + representativeComments를 Groq AI로 번역 → `textKo` 필드 (캐시 저장 전 1회 실행, 이후 `translation_cache`에서 영구 재사용)
+- **Reel 썸네일 캡처**: detail 페이지 진입 시 Playwright screenshot → `public/static/captures/instagram-*.png` (PNG 정적 파일). 카드 UI에서 직접 노출
+- **캐시**: `mdl_cache` 테이블 (key `instagram_buzz_v1`), TTL **12시간** (사용자 IP throttle 부담 ↓). 503 / 0건 응답 시 cache 덮어쓰지 않고 이전 결과 fallback
+
+**한계 / 알려진 이슈**:
+- Instagram이 anti-bot을 강화하면 stealth 플러그인으로도 captcha / login wall 우회 실패 가능 → 그 경우 lockout 후 사용자에게 안내 표시 (`warnings[]` 필드)
+- 쿠키 만료 시(보통 1-2주) `instagram-login.mjs` 재실행 필요
+- `og:description`이 비공개 계정 / video-only Reel에서 부재할 수 있음 → fallback 점수(40/32/24…) 적용
+- GraphQL intercept는 IG가 응답 schema 변경 시 깨질 수 있음 → deep crawl 0개 fallback (score top 3만 카드 표시, deep section 자동 hide)
+
+---
+
 ## MyDramaList 통합 (Top Airing K-드라마 분석)
 
 **별도 파이프라인** ([src/crawlers/mdl.ts](src/crawlers/mdl.ts) + [src/pipeline/mdlAnalysis.ts](src/pipeline/mdlAnalysis.ts))
@@ -345,6 +382,8 @@ TOP5 포스트마다:
 | POST | `/api/youtube/refresh` | YouTube `youtubei.js` 수집 + 콘텐츠 유형·반응 패턴 분석 (TTL 3h) |
 | GET | `/api/tiktok` | TikTok 캐시 조회 |
 | POST | `/api/tiktok/refresh` | TikTok 키워드 검색 + 작품·사운드·크리에이터 분석 (TTL 3h) — 사용자 쿠키 필수 |
+| GET | `/api/instagram` | Instagram 캐시 조회 (없으면 `summary: null`) |
+| POST | `/api/instagram/refresh` | Instagram Playwright + stealth 크롤 → 4-stage funnel + 댓글 한국어 번역 (TTL 12h) — 사용자 쿠키 필수. 결과 0건이면 503 (cache 보존, 이전 결과 fallback) |
 | GET | `/api/reports` | 리포트 목록 (`?type=daily\|weekly`) |
 | GET | `/api/reports/latest/:type` | 최신 리포트 |
 | GET | `/api/reports/:id` | 특정 리포트 |
@@ -370,7 +409,9 @@ src/
 │   ├── mdl.ts             ← Playwright 기반 MyDramaList 크롤러
 │   ├── gtrends.ts         ← Google Trends Playwright 7페이지 병합
 │   ├── youtube.ts         ← youtubei.js 14개 해시태그 검색 + 2단계 K-content 마커 필터 + 댓글
-│   └── tiktok.ts          ← @tobyg74/tiktok-api-dl + 사용자 쿠키 (~/Desktop/secret/001/tiktok-cookies.json) 5개 키워드 검색 + 2단계 필터 + 댓글
+│   ├── tiktok.ts          ← @tobyg74/tiktok-api-dl + 사용자 쿠키 (~/Desktop/secret/001/tiktok-cookies.json) 7개 키워드 검색 + 2단계 필터 + 댓글
+│   ├── tiktokWeb.ts       ← (보존) Playwright + stealth 트랙. DataDome 차단으로 미사용 — `buildTiktokSummaryWeb()`로 명시 호출만 가능
+│   └── instagram.ts       ← playwright-extra + stealth + 사용자 쿠키 (~/Desktop/secret/001/instagram-cookies.json) 7개 K-드라마 hashtag 4-stage funnel + GraphQL 댓글 intercept
 ├── data/
 │   ├── usEvents.ts             ← 미국 연간 이벤트 캘린더 50개 + K-콘텐츠 시사점 17개
 │   ├── known-dramas-static.ts  ← 한국 드라마·영화 ~150개 + 한국 배우/연기자 ~80명 (정적 사전, commit됨)
@@ -387,6 +428,8 @@ src/
 │   ├── translateYoutube.ts← YouTube 댓글 Groq AI 한국어 번역 (작품별 카드 표시용)
 │   ├── tiktokAnalysis.ts  ← TikTok engagement score (views·likes·comments·shares) + 작품·사운드·크리에이터 집계
 │   ├── translateTiktok.ts ← TikTok 댓글 Groq AI 한국어 번역 (작품별 카드)
+│   ├── instagramAnalysis.ts ← Instagram 작품 추출 + 반응 유형 분류 + 반복 phrase + 작품별 화제도 + Groq 자동 요약
+│   ├── translateInstagram.ts ← Instagram 댓글 Groq AI 한국어 번역 (작품별 카드 + representativeComments)
 │   ├── normalizer.ts      ← 정규화·드라마 제목 추출
 │   ├── clusterer.ts       ← Jaccard/Levenshtein 타이틀 클러스터링
 │   ├── scorer.ts          ← 종합 점수 산출
@@ -416,6 +459,7 @@ data/k-content.db
                       + GTrends 북미 (key='us_daily_v1', TTL 1h)
                       + YouTube SNS 버즈 (key='youtube_buzz_v3', TTL 3h, contentGroups + 한국어 번역 포함)
                       + TikTok SNS 버즈 (key='tiktok_buzz_v1', TTL 3h, 작품·사운드·크리에이터 + 한국어 번역)
+                      + Instagram SNS 버즈 (key='instagram_buzz_v1', TTL 12h, 4-stage funnel + 작품별 화제도 + deep 댓글 ~50개 × top 3 + 한국어 번역)
 └── translation_cache - 영문 → 한국어 번역 (Groq, 텍스트 해시 키, 영구)
 ```
 
