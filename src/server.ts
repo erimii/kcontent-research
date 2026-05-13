@@ -11,7 +11,7 @@ import { fileURLToPath } from 'url'
 import { marked } from 'marked'
 import {
   db, initDb, saveReport, saveCrawlLog,
-  getLatestReport, getReportList, getReportById, getCrawlLogs, searchSnapshots,
+  getLatestReport, getReportList, getReportById, getCrawlLogs,
   getMdlCache, setMdlCache,
 } from './db.js'
 import { runPipeline } from './pipeline/index.js'
@@ -19,7 +19,8 @@ import { demoRedditPosts } from './demo-data.js'
 import { analyzeMdlDramas } from './pipeline/mdlAnalysis.js'
 import { buildGTrendsSummary } from './pipeline/gtrendsAnalysis.js'
 import { buildYoutubeSummary } from './pipeline/youtubeAnalysis.js'
-import type { MdlSummary, GTrendsSummary, YoutubeSummary } from './types/index.js'
+import { buildNewsletterV2 } from './pipeline/newsletter.js'
+import type { MdlSummary, GTrendsSummary, YoutubeSummary, InstagramSummary } from './types/index.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -194,384 +195,36 @@ app.get('/api/logs', (_req, res) => {
 })
 
 // ============================================================
-// 콘텐츠 검색
+// 뉴스레터 HTML — buildNewsletterV2 위임 (2026-05-12)
 // ============================================================
-app.get('/api/search', (req, res) => {
-  try {
-    const q = (req.query.q as string) ?? ''
-    const kOnly = req.query.konly === 'true'
-    res.json({ ok: true, results: searchSnapshots(q, kOnly) })
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) })
-  }
-})
-
-// ============================================================
-// 뉴스레터 HTML — 대시보드 6단계 결과를 이메일 친화 레이아웃으로 압축
-// ============================================================
-const KR_INSIGHT_META: Record<string, { icon: string; label: string; color: string }> = {
-  trend_summary:       { icon: '📈', label: '트렌드 요약',      color: '#3b82f6' },
-  fan_reaction:        { icon: '💬', label: '팬 반응 특징',     color: '#f59e0b' },
-  consumption_pattern: { icon: '🎬', label: '콘텐츠 소비 패턴',  color: '#8b5cf6' },
-  expansion:           { icon: '🌏', label: '확장 흐름',         color: '#10b981' },
-  subreddit:           { icon: '👥', label: '커뮤니티 특성',     color: '#ec4899' },
-}
-const BEHAVIOR_KO: Record<string, string> = {
-  recommendation: '추천 요청', review: '리뷰/후기', question: '질문', discussion: '의견/토론',
-}
-const escNl = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-const pctNl = (n: number) => `${Math.round((n || 0) * 100)}%`
-
 app.get('/api/newsletter/:id', (req, res) => {
   try {
     const row = getReportById(req.params.id)
     if (!row) return void res.status(404).send('<h1>리포트를 찾을 수 없습니다</h1>')
     const report = { ...row, data: JSON.parse(row.data) } as any
-    const r = report.data
-    const now = new Date(r.generatedAt).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })
-    const koreanInsights = (r.koreanInsights || []) as { category: string; text: string; evidence?: string[] }[]
-    const trends = r.trends
-    const sent = trends?.sentiment
-    const beh = trends?.behavior
-    const dominantBeh = beh ? Object.entries(beh.ratios as Record<string, number>).sort((a, b) => b[1] - a[1])[0] : null
 
-    // Reddit 토론 TOP 3 (deepAnalysis 우선)
-    const deep = (r.deepAnalysis || []) as any[]
-    const top3Posts = deep.slice(0, 3)
+    // 최신 SNS 캐시 합성 (있으면 사용, 없으면 graceful skip)
+    const mdl = getMdlCache<MdlSummary>('top_airing_v1')?.data || null
+    const youtube = getMdlCache<YoutubeSummary>('youtube_buzz_v3')?.data || null
+    const instagram = getMdlCache<InstagramSummary>('instagram_buzz_v1')?.data || null
+    const gtrends = getMdlCache<GTrendsSummary>('us_daily_v1')?.data || null
+    // 영문→한국 원제 동적 매핑 (popular + upcoming)
+    const nativeTitleMap = getMdlCache<{ map: Record<string, string> }>(MDL_NATIVE_TITLE_MAP_KEY)?.data?.map || null
+    const upcomingTitleMap = getMdlCache<{ map: Record<string, string> }>(MDL_UPCOMING_TITLE_MAP_KEY)?.data?.map || null
 
-    // MDL 캐시
-    const mdlCache = getMdlCache<MdlSummary>('top_airing_v1')
-    const mdl = mdlCache?.data
-    const top3Dramas = (mdl?.dramas || []).slice(0, 3)
-
-    // 헤드라인 — ① 평가 분열 작품 ② trend_summary ③ TOP 작품 ④ fallback
-    const polarizedDrama = (mdl?.dramas || []).find((d: any) => d.polarized)
-    const trendSummary = koreanInsights.find((k) => k.category === 'trend_summary')?.text
-    const topTitle = trends?.content?.topContents?.[0]?.title
-    const headline = polarizedDrama
-      ? `⚠ ${polarizedDrama.drama.title} — 평점 ${polarizedDrama.drama.rating.toFixed(1)}점이지만 호불호가 갈리는 작품${polarizedDrama.polarizedReason ? ` (${polarizedDrama.polarizedReason})` : ''}으로 주목받고 있습니다.`
-      : trendSummary
-      ? trendSummary
-      : topTitle
-      ? `이번 기간 글로벌 K-팬덤은 '${topTitle}'을(를) 중심으로 활발히 토론하고 있습니다.`
-      : `${r.topContents?.length || 0}개 콘텐츠 분석 리포트`
-
-    // GTrends 캐시
-    const gtCache = getMdlCache<GTrendsSummary>('us_daily_v1')
-    const gt = gtCache?.data
-
-    // YouTube 캐시
-    const ytCache = getMdlCache<YoutubeSummary>('youtube_buzz_v1')
-    const yt = ytCache?.data
-
-    const insightCard = (ins: { category: string; text: string; observation?: string; interpretation?: string; action?: string; evidence?: string[] }) => {
-      const meta = KR_INSIGHT_META[ins.category] || { icon: '✨', label: '인사이트', color: '#888' }
-      const hasStructured = !!(ins.observation && ins.interpretation && ins.action)
-      return `
-      <tr><td style="padding:0 0 12px">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-left:3px solid ${meta.color};background:#f7f8fc;border-radius:6px">
-          <tr><td style="padding:14px 16px">
-            <div style="font-size:11px;color:${meta.color};font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:10px">${meta.icon} ${meta.label}</div>
-            ${hasStructured ? `
-              <div style="margin-bottom:10px">
-                <div style="font-size:11px;color:${meta.color};font-weight:700;margin-bottom:3px">📌 핵심 인사이트</div>
-                <div style="font-size:13px;line-height:1.55;color:#1a1a2e">${escNl(ins.observation)}</div>
-              </div>
-              <div style="margin-bottom:10px">
-                <div style="font-size:11px;color:#5d6680;font-weight:700;margin-bottom:3px">🔍 해석</div>
-                <div style="font-size:13px;line-height:1.55;color:#3a4163">${escNl(ins.interpretation)}</div>
-              </div>
-              <div style="padding:10px 12px;background:#fff;border-radius:5px;border-left:2px solid ${meta.color}">
-                <div style="font-size:11px;color:${meta.color};font-weight:700;margin-bottom:3px">💡 액션 제안 (Claude의 의견)</div>
-                <div style="font-size:13px;line-height:1.6;color:#1a1a2e">${escNl(ins.action)}</div>
-              </div>
-            ` : `
-              <div style="font-size:13px;line-height:1.6;color:#1a1a2e">${escNl(ins.text)}</div>
-            `}
-            ${ins.evidence && ins.evidence.length ? `
-              <div style="margin-top:10px">
-                ${ins.evidence.slice(0, 3).map((e) => `<span style="display:inline-block;font-size:10px;background:rgba(0,0,0,0.04);padding:2px 6px;border-radius:4px;color:#5d6680;margin-right:3px;margin-bottom:2px">${escNl(e)}</span>`).join('')}
-              </div>` : ''}
-          </td></tr>
-        </table>
-      </td></tr>`
-    }
-
-    const postCard = (d: any, i: number) => {
-      const debate = (d.commentDebates || [])[0]
-      const debateColor = debate
-        ? (debate.opinionDirection === 'mixed' ? '#f59e0b' : debate.opinionDirection === 'positive' ? '#10b981' : debate.opinionDirection === 'negative' ? '#ef4444' : '#6b7280')
-        : '#8b5cf6'
-      return `
-      <tr><td style="padding:0 0 12px">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border:1px solid #e8eaf2;border-radius:8px;background:#fff">
-          <tr><td style="padding:14px 16px">
-            <div style="font-size:12px;color:#8b5cf6;font-weight:700;margin-bottom:4px">#${i + 1} · r/${escNl(d.subreddit)} · 💬 ${d.commentCount}</div>
-            <a href="${escNl(d.url)}" style="font-size:14px;font-weight:700;color:#1a1a2e;text-decoration:none;line-height:1.4;display:block">${escNl(d.titleKo || d.title)}</a>
-            ${d.titleKo && d.titleKo !== d.title ? `<div style="font-size:11px;color:#9ba3bf;font-style:italic;margin-bottom:10px">${escNl(d.title)}</div>` : '<div style="margin-bottom:10px"></div>'}
-            ${debate ? `
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f7f8fc;border-left:3px solid ${debateColor};border-radius:4px">
-                <tr><td style="padding:8px 12px">
-                  <div style="font-size:11px;color:${debateColor};font-weight:700;margin-bottom:3px">🗣️ 핵심 쟁점 — ${escNl(debate.topic)}</div>
-                  <div style="font-size:11px;color:#5d6680;line-height:1.5">${escNl(debate.description)} <span style="color:${debateColor}">(${escNl(debate.opinionDistribution.mixedLabel)})</span></div>
-                  <div style="font-size:11px;color:#3a4163;line-height:1.5;margin-top:3px"><strong>해석:</strong> ${escNl(debate.interpretation)}</div>
-                  ${(debate.representatives || []).slice(0, 2).map((rep: any) => {
-                    const display = rep.bodyKo || rep.body
-                    const orig = rep.bodyKo && rep.bodyKo !== rep.body ? rep.body : null
-                    return `<div style="font-size:11px;color:#3a4163;line-height:1.5;margin-top:5px;padding:4px 8px;background:#fff;border-radius:3px;border-left:2px solid ${debateColor}">
-                      "${escNl(display.slice(0, 200))}${display.length > 200 ? '…' : ''}"
-                      ${orig ? `<div style="font-size:10px;color:#9ba3bf;font-style:italic;margin-top:2px">↳ ${escNl(orig.slice(0, 180))}${orig.length > 180 ? '…' : ''}</div>` : ''}
-                    </div>`
-                  }).join('')}
-                </td></tr>
-              </table>` : ''}
-          </td></tr>
-        </table>
-      </td></tr>`
-    }
-
-    const dramaCard = (a: any, i: number) => {
-      const d = a.drama
-      const sent = a.reviewSentiment
-      const total = (sent.positive + sent.negative) || 1
-      const posPct = Math.round((sent.positiveRatio || 0) * 100)
-      return `
-      <tr><td style="padding:0 0 12px">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border:1px solid #e8eaf2;border-radius:8px;background:#fff">
-          <tr>
-            ${d.posterUrl ? `<td valign="top" style="padding:14px 0 14px 14px;width:80px"><img src="${escNl(d.posterUrl)}" alt="${escNl(d.title)}" width="68" style="border-radius:4px;display:block;width:68px;height:auto"></td>` : ''}
-            <td style="padding:14px 16px;vertical-align:top">
-              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-                <a href="${escNl(d.url)}" style="font-size:14px;font-weight:700;color:#1a1a2e;text-decoration:none">#${i + 1} ${escNl(d.title)}${a.polarized ? ' <span style="display:inline-block;font-size:10px;background:#ef4444;color:#fff;padding:2px 6px;border-radius:4px;margin-left:4px;vertical-align:middle;font-weight:700">⚠ 평가 분열</span>' : ''}</a>
-                <span style="font-size:13px;color:#a78bfa;font-weight:700;white-space:nowrap;margin-left:10px">⭐ ${d.rating.toFixed(1)}</span>
-              </div>
-              <div style="font-size:11px;color:#9ba3bf;margin-bottom:6px">
-                ${d.year ? d.year + ' · ' : ''}${d.episodes ? d.episodes + '부작 · ' : ''}리뷰 ${d.reviewCount}개${total > 1 ? ` · 댓글 긍정 ${posPct}%` : ''}
-              </div>
-              <div style="font-size:12px;color:#3a4163;line-height:1.55">${escNl(a.popularityReason)}</div>
-              ${a.polarized && a.polarizedReason ? `
-                <div style="margin-top:6px;font-size:11px;color:#ef4444;background:#fef5f5;padding:6px 10px;border-radius:4px;line-height:1.5">
-                  <strong>⚠ ${escNl(a.polarizedReason)}</strong>
-                </div>` : ''}
-            </td>
-          </tr>
-        </table>
-      </td></tr>`
-    }
-
-    const sentLine = sent
-      ? `긍정 <strong style="color:#10b981">${pctNl(sent.positiveRatio)}</strong> · 중립 <strong>${pctNl(sent.neutralRatio)}</strong> · 부정 <strong style="color:#ef4444">${pctNl(sent.negativeRatio)}</strong>`
-      : ''
-    const behLine = beh && dominantBeh
-      ? `행동: <strong>${BEHAVIOR_KO[dominantBeh[0]] || dominantBeh[0]}</strong> ${pctNl(dominantBeh[1])} 우세`
-      : ''
-
-    const html = `<!DOCTYPE html>
-<html lang="ko">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>K-Content Intelligence · ${now}</title>
-</head>
-<body style="margin:0;padding:0;background:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#1a1a2e">
-<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f4f5f7;padding:32px 0">
-  <tr><td align="center">
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="680" style="max-width:680px;width:100%">
-
-      <!-- Header -->
-      <tr><td style="background:linear-gradient(135deg,#0f0f1a 0%,#2a2a4e 100%);color:#fff;padding:32px 36px;border-radius:16px 16px 0 0">
-        <div style="font-size:22px;font-weight:800;letter-spacing:-0.3px">🇰🇷 K-Content Intelligence</div>
-        <div style="font-size:12px;color:#a0a8d0;margin-top:4px">${r.reportType === 'weekly' ? '주간' : '일간'} 글로벌 K-콘텐츠 팬덤 리포트 · ${now}</div>
-        <div style="margin-top:14px;padding:12px 14px;background:rgba(255,255,255,0.07);border-radius:8px;border-left:3px solid #ec4899">
-          <div style="font-size:10px;color:#ec4899;font-weight:700;text-transform:uppercase;margin-bottom:4px">이번 호 헤드라인</div>
-          <div style="font-size:13px;line-height:1.55;color:#e8eaf6">${escNl(headline)}</div>
-        </div>
-      </td></tr>
-
-      <!-- 통계 한 줄 -->
-      <tr><td style="background:#fff;padding:18px 36px;border-left:1px solid #e0e4ef;border-right:1px solid #e0e4ef;border-bottom:1px solid #f0f2f8">
-        <div style="font-size:12px;color:#5d6680;line-height:1.6">
-          📊 <strong>${r.topContents?.length || 0}개 콘텐츠</strong> · 포스트 <strong>${r.filterStats?.after || 0}개</strong>
-          ${sentLine ? ` · ${sentLine}` : ''}
-          ${behLine ? ` · ${behLine}` : ''}
-        </div>
-      </td></tr>
-
-      <!-- K-콘텐츠 트렌드 분석 (작품·배우 빈도 + 핵심 인사이트 통합) -->
-      ${(koreanInsights.length > 0 || (trends?.content && ((trends.content.topContents?.length || 0) + (trends.content.topActors?.length || 0)) > 0)) ? `
-      <tr><td style="background:#fff;padding:24px 36px;border-left:1px solid #e0e4ef;border-right:1px solid #e0e4ef">
-        <div style="font-size:14px;font-weight:700;color:#1a1a2e;margin-bottom:6px;padding-bottom:8px;border-bottom:2px solid #f0f2f8">🔥 K-콘텐츠 트렌드 분석</div>
-        <div style="font-size:11px;color:#9ba3bf;line-height:1.55;margin-bottom:14px">
-          📡 출처: Reddit ${(r.subredditInsights || []).length > 0 ? (r.subredditInsights || []).map((s: any) => `r/${escNl(s.subreddit)}`).join(' · ') : 'r/kdramas · r/kdrama · r/kdramarecommends · r/korean'} ·
-          hot+new+top+controversial RSS · ${
-            r.redditCrawlMeta
-              ? `최근 <strong>${escNl(r.redditCrawlMeta.cutoffLabel)}</strong>${r.redditCrawlMeta.fallbackUsed ? ` <span style="color:#f59e0b">⚠ 표본 부족으로 ${escNl(r.redditCrawlMeta.cutoffLabel)} fallback</span>` : ''}`
-              : '최근 7일'
-          } ·
-          포스트 <strong>${r.filterStats?.after || 0}개</strong> 분석 (수집 ${r.filterStats?.before || 0} → 필터 후 ${r.filterStats?.after || 0}) · title+selftext+댓글 통합 추출${
-            (r.deepAnalysis || []).length > 0
-              ? ` · 그중 댓글 많은 TOP ${(r.deepAnalysis || []).length}개 (댓글 ${(r.deepAnalysis || []).reduce((s: number, d: any) => s + (d.commentCount || 0), 0)}개)도 함께 분석`
-              : ''
-          }
-        </div>
-
-        ${trends?.content && ((trends.content.topContents?.length || 0) + (trends.content.topActors?.length || 0)) > 0 ? `
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom:14px">
-          ${(trends.content.topContents || []).slice(0, 5).length > 0 ? `
-          <tr><td style="padding:6px 0;font-size:12px;color:#3a4163;line-height:1.7">
-            <strong style="color:#8b5cf6">📺 작품 TOP ${Math.min(5, (trends.content.topContents || []).length)}</strong> ·
-            ${(trends.content.topContents || []).slice(0, 5).map((c: any) => `${escNl(c.title)} <span style="color:#9ba3bf">(${c.count})</span>`).join(' · ')}
-          </td></tr>` : ''}
-          ${(trends.content.topActors || []).slice(0, 5).length > 0 ? `
-          <tr><td style="padding:6px 0;font-size:12px;color:#3a4163;line-height:1.7;border-top:1px solid #f0f2f8">
-            <strong style="color:#10b981">🎭 배우 TOP ${Math.min(5, (trends.content.topActors || []).length)}</strong> ·
-            ${(trends.content.topActors || []).slice(0, 5).map((a: any) => `${escNl(a.name)} <span style="color:#9ba3bf">(${a.count})</span>`).join(' · ')}
-          </td></tr>` : ''}
-        </table>` : ''}
-
-        ${koreanInsights.length > 0 ? `
-        <div style="font-size:12px;font-weight:700;color:#ec4899;text-transform:uppercase;letter-spacing:0.4px;margin:6px 0 10px;padding-top:8px;border-top:2px solid #f0f2f8">🧠 핵심 인사이트 (Claude 해석)</div>
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-          ${koreanInsights.slice(0, 3).map(insightCard).join('')}
-        </table>` : ''}
-      </td></tr>` : ''}
-
-      <!-- Reddit TOP 포스트 댓글 딥분석 -->
-      ${top3Posts.length > 0 ? `
-      <tr><td style="background:#fff;padding:24px 36px;border-left:1px solid #e0e4ef;border-right:1px solid #e0e4ef">
-        <div style="font-size:14px;font-weight:700;color:#1a1a2e;margin-bottom:6px;padding-bottom:8px;border-bottom:2px solid #f0f2f8">🔥 Reddit TOP ${top3Posts.length} 포스트 댓글 딥분석</div>
-        <div style="font-size:11px;color:#9ba3bf;line-height:1.55;margin-bottom:12px">
-          📡 출처: Reddit 토론 TOP ${top3Posts.length} 포스트 · 댓글 합계 <strong style="color:#3a4163">${top3Posts.reduce((s: number, d: any) => s + (d.commentCount || 0), 0)}개</strong> 분석 · 포스트당 댓글 RSS에서 본문 길이 ≥20자 댓글 수집 후 감정/의견/쟁점 클러스터링
-        </div>
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-          ${top3Posts.map((d: any, i: number) => postCard(d, i)).join('')}
-        </table>
-      </td></tr>` : ''}
-
-      <!-- MDL Top Airing TOP 3 -->
-      ${top3Dramas.length > 0 ? `
-      <tr><td style="background:#fff;padding:24px 36px;border-left:1px solid #e0e4ef;border-right:1px solid #e0e4ef">
-        <div style="font-size:14px;font-weight:700;color:#1a1a2e;margin-bottom:6px;padding-bottom:8px;border-bottom:2px solid #f0f2f8">📺 MyDramaList Top Airing K-드라마 TOP ${top3Dramas.length}</div>
-        <div style="font-size:11px;color:#9ba3bf;margin-bottom:12px">평균 평점 ${(mdl?.aggregate?.avgRating || 0).toFixed(2)}/10 · ${escNl(mdl?.aggregate?.overallSentimentSummary || '')}</div>
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-          ${top3Dramas.map((a: any, i: number) => dramaCard(a, i)).join('')}
-        </table>
-      </td></tr>` : ''}
-
-      <!-- YouTube SNS 버즈 -->
-      ${yt && yt.totalVideos > 0 ? `
-      <tr><td style="background:#fff;padding:24px 36px;border-left:1px solid #e0e4ef;border-right:1px solid #e0e4ef">
-        <div style="font-size:14px;font-weight:700;color:#1a1a2e;margin-bottom:6px;padding-bottom:8px;border-bottom:2px solid #f0f2f8">▶️ SNS 버즈 분석 (YouTube)</div>
-        <div style="font-size:11px;color:#9ba3bf;margin-bottom:12px">${yt.totalVideos}개 영상 · 댓글 ${yt.totalComments}개 분석</div>
-
-        <!-- 🏆 작품별 화제도 -->
-        ${(yt.contentGroups || []).length > 0 ? `
-          <div style="font-size:11px;color:#fbbf24;font-weight:700;text-transform:uppercase;margin:8px 0 6px">🏆 작품별 화제도</div>
-          ${(yt.contentGroups || []).map((g: any) => `
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border:1px solid #e8eaf2;border-radius:6px;margin-bottom:6px;background:#fffbf0">
-              <tr><td style="padding:10px 12px">
-                <a href="https://www.youtube.com/watch?v=${escNl(g.topVideoId)}" style="font-size:12px;font-weight:700;color:#1a1a2e;text-decoration:none">
-                  🏆 ${escNl(g.title)}
-                </a>
-                <div style="font-size:10px;color:#9ba3bf;margin-top:3px">
-                  영상 ${g.videoCount} · 👁 ${(g.totalViews || 0).toLocaleString()} · 👍 ${(g.totalLikes || 0).toLocaleString()} · 💬 ${(g.totalComments || 0).toLocaleString()}
-                </div>
-                ${(g.languageDistribution || []).length > 0 ? `
-                  <div style="font-size:10px;color:#9ba3bf;margin-top:2px">
-                    🌍 ${(g.languageDistribution || []).slice(0, 5).map((L: any) => `${L.flag} ${L.percent}%`).join(' · ')}
-                  </div>` : ''}
-                ${(g.quotedPhrases || []).length > 0 ? `
-                  <div style="font-size:11px;color:#fbbf24;margin-top:5px;padding:5px 8px;background:#fffbf0;border-left:2px solid #fbbf24;border-radius:3px;line-height:1.5">
-                    <strong>💎 자주 반복되는 댓글 표현</strong>
-                    ${(g.quotedPhrases || []).slice(0, 3).map((qp: any) => {
-                      const display = qp.phraseKo || qp.phrase || ''
-                      return `<div style="color:#1a1a2e;margin-top:2px">"${escNl(display.slice(0, 70))}" <span style="color:#9ba3bf">— ${qp.count}회</span></div>`
-                    }).join('')}
-                  </div>` : ''}
-                ${g.discussionHotspot ? `
-                  <div style="font-size:11px;color:#a78bfa;margin-top:5px;padding:5px 8px;background:#f7f5ff;border-left:2px solid #a78bfa;border-radius:3px;line-height:1.5">
-                    <strong>🔥 답글 가장 많은 댓글</strong> · 답글 ${g.discussionHotspot.replyCount}개 · 👍 ${g.discussionHotspot.likes}
-                    <div style="color:#1a1a2e;margin-top:2px">"${escNl((g.discussionHotspot.textKo || g.discussionHotspot.text || '').slice(0, 100))}"</div>
-                  </div>` : ''}
-                ${(g.topComments || []).slice(0, 1).map((c: any) => {
-                  const display = c.textKo || c.text || ''
-                  return `
-                  <div style="font-size:11px;color:#1a1a2e;margin-top:5px;padding:5px 8px;background:#fff;border-radius:3px;line-height:1.5">
-                    "${escNl(display.replace(/\\s+/g, ' ').trim().slice(0, 100))}${display.length > 100 ? '…' : ''}" <span style="color:#9ba3bf">— 👍 ${c.likes}</span>
-                  </div>`
-                }).join('')}
-              </td></tr>
-            </table>`).join('')}
-        ` : ''}
-
-        <!-- 콘텐츠 유형 -->
-        ${(yt.contentTypeStats || []).length > 0 ? `
-          <div style="margin-top:8px;font-size:11px;color:#5d6680">
-            <strong>콘텐츠 유형:</strong> ${(yt.contentTypeStats || []).slice(0, 5).map((c: any) => `${escNl(c.label)} <strong>${c.count}</strong>`).join(' · ')}
-          </div>` : ''}
-      </td></tr>` : ''}
-
-      <!-- Google Trends — 북미 거시 + K-콘텐츠 비교 -->
-      ${gt ? `
-      <tr><td style="background:#fff;padding:24px 36px;border-left:1px solid #e0e4ef;border-right:1px solid #e0e4ef">
-        <div style="font-size:14px;font-weight:700;color:#1a1a2e;margin-bottom:14px;padding-bottom:8px;border-bottom:2px solid #f0f2f8">🌎 북미 트렌드 분석 (Google Trends · ${escNl(gt.geo)})</div>
-
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-          <tr><td style="padding:0 0 10px">
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-left:3px solid #ef4444;background:#fef5f5;border-radius:6px">
-              <tr><td style="padding:12px 14px">
-                <div style="font-size:11px;color:#ef4444;font-weight:700;text-transform:uppercase;margin-bottom:4px">① K-콘텐츠 트렌드</div>
-                <div style="font-size:12px;line-height:1.6;color:#1a1a2e">${escNl(gt.kInsight)}</div>
-                ${(gt.kItems || []).slice(0, 3).length > 0 ? `
-                  <div style="margin-top:6px;font-size:11px;color:#5d6680">
-                    ${(gt.kItems || []).slice(0, 3).map((it: any) => `<strong>${escNl(it.title)}</strong> (${escNl(it.traffic)})`).join(' · ')}
-                  </div>` : ''}
-              </td></tr>
-            </table>
-          </td></tr>
-
-          <tr><td style="padding:0 0 10px">
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-left:3px solid #22d3ee;background:#f0fbff;border-radius:6px">
-              <tr><td style="padding:12px 14px">
-                <div style="font-size:11px;color:#22d3ee;font-weight:700;text-transform:uppercase;margin-bottom:4px">② 트렌드 비교 인사이트</div>
-                <div style="font-size:12px;line-height:1.65;color:#1a1a2e">${escNl(gt.comparison)}</div>
-              </td></tr>
-            </table>
-          </td></tr>
-
-          <tr><td>
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-left:3px solid #22d3ee;background:#f0fbff;border-radius:6px">
-              <tr><td style="padding:12px 14px">
-                <div style="font-size:11px;color:#22d3ee;font-weight:700;text-transform:uppercase;margin-bottom:4px">③ 북미 거시 트렌드</div>
-                <div style="font-size:12px;line-height:1.6;color:#1a1a2e">${escNl(gt.oneLineSummary)}</div>
-                ${(gt.topItems || []).slice(0, 5).length > 0 ? `
-                  <div style="margin-top:8px;font-size:11px;color:#5d6680">
-                    <strong>TOP 5</strong>: ${(gt.topItems || []).slice(0, 5).map((it: any) => `${escNl(it.title)} <span style="color:#9ba3bf">(${escNl(it.traffic)})</span>`).join(' · ')}
-                  </div>` : ''}
-              </td></tr>
-            </table>
-          </td></tr>
-        </table>
-      </td></tr>` : ''}
-
-      <!-- Footer -->
-      <tr><td style="background:#fff;padding:20px 36px;border:1px solid #e0e4ef;border-top:none;border-radius:0 0 16px 16px;text-align:center;color:#9ba3bf;font-size:11px;line-height:1.5">
-        K-Content Intelligence Dashboard · 자동 생성 리포트 · ${now}<br>
-        <span style="font-size:10px">소스: ${(r.sourceSummary || []).map((s: any) => `${escNl(s.source)}(${s.itemCount})`).join(', ')}${mdl ? ` · MDL(${(mdl.dramas || []).length} 드라마)` : ''}${gt ? ` · GTrends(${gt.totalItems} 트렌드)` : ''}${yt ? ` · YouTube(${yt.totalVideos} 영상)` : ''}</span>
-      </td></tr>
-
-    </table>
-  </td></tr>
-</table>
-</body>
-</html>`
-
+    const html = buildNewsletterV2({
+      report: report.data,
+      mdl, youtube, instagram, gtrends,
+      nativeTitleMap, upcomingTitleMap,
+      publicHost: `http://${req.headers.host || `localhost:${PORT}`}`,
+    })
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
     res.send(html)
   } catch (e) {
     res.status(500).send(`<h1>오류: ${e}</h1>`)
   }
 })
+
 
 // ============================================================
 // 최신 리포트 뉴스레터
@@ -721,6 +374,12 @@ const MDL_TOP_ALLTIME_TTL_SEC = 30 * 24 * 3600
 // MDL Popular/TopKorea 제목 사전 (사전 매칭 자동 갱신용) — TTL 24h, 자주 안 바뀜
 const MDL_POPULAR_CACHE_KEY = 'mdl_popular_titles_v1'
 const MDL_POPULAR_CACHE_TTL_SEC = 24 * 3600
+// 영문→한국 원제 매핑 자동 동기화 (2026-05-12) — TTL 7d, ~2-4분 크롤
+const MDL_NATIVE_TITLE_MAP_KEY = 'mdl_native_title_map_v1'
+const MDL_NATIVE_TITLE_MAP_TTL_SEC = 7 * 24 * 3600
+// Upcoming K-드라마 영문→한국 원제 매핑 (2026-05-13) — TTL 24h, ~2분 크롤
+const MDL_UPCOMING_TITLE_MAP_KEY = 'mdl_upcoming_title_map_v1'
+const MDL_UPCOMING_TITLE_MAP_TTL_SEC = 24 * 3600
 
 app.get('/api/mdl', (_req, res) => {
   try {
@@ -843,6 +502,129 @@ app.post('/api/mdl/popular/refresh', async (req, res) => {
   } catch (e) {
     console.error('[MDL-popular] 오류:', e)
     saveCrawlLog('mdl-popular', 0, 'failed', String(e))
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+// ── 2026-05-12: 영문→한국 원제 자동 매핑 ────────────────────
+app.get('/api/mdl/native-titles', (_req, res) => {
+  try {
+    const cached = getMdlCache<{ map: Record<string, string> }>(MDL_NATIVE_TITLE_MAP_KEY)
+    if (!cached) return res.json({ ok: true, map: {}, cached: false })
+    res.json({
+      ok: true,
+      map: cached.data.map,
+      count: Object.keys(cached.data.map).length,
+      cached: true,
+      fetchedAt: cached.fetchedAt,
+      expiresAt: cached.expiresAt,
+    })
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+app.post('/api/mdl/native-titles/refresh', async (req, res) => {
+  try {
+    const force = req.body?.force === true
+    if (!force) {
+      const cached = getMdlCache<{ map: Record<string, string> }>(MDL_NATIVE_TITLE_MAP_KEY)
+      if (cached) {
+        return res.json({
+          ok: true,
+          map: cached.data.map,
+          count: Object.keys(cached.data.map).length,
+          cached: true,
+          fetchedAt: cached.fetchedAt,
+          expiresAt: cached.expiresAt,
+        })
+      }
+    }
+
+    console.log('[MDL-native-titles] 새 크롤링 시작 (~2-4분)...')
+    const t0 = Date.now()
+    const { crawlMdlNativeTitleMap } = await import('./crawlers/mdl.js')
+    const map = await crawlMdlNativeTitleMap(50)
+    saveCrawlLog('mdl-native-titles', Object.keys(map).length, Object.keys(map).length > 0 ? 'success' : 'failed')
+    if (Object.keys(map).length === 0) {
+      return res.status(503).json({ ok: false, error: 'MDL nativeTitle 크롤링 실패 (0개 매핑)' })
+    }
+    const ttl = setMdlCache(MDL_NATIVE_TITLE_MAP_KEY, { map }, MDL_NATIVE_TITLE_MAP_TTL_SEC)
+    console.log(`[MDL-native-titles] 완료 (${((Date.now() - t0) / 1000).toFixed(1)}s) - ${Object.keys(map).length}개 매핑`)
+
+    res.json({
+      ok: true,
+      map,
+      count: Object.keys(map).length,
+      cached: false,
+      fetchedAt: ttl.fetchedAt,
+      expiresAt: ttl.expiresAt,
+    })
+  } catch (e) {
+    console.error('[MDL-native-titles] 오류:', e)
+    saveCrawlLog('mdl-native-titles', 0, 'failed', String(e))
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+// ── 2026-05-13: Upcoming K-드라마 영문→한국 원제 자동 매핑 ──
+// URL: /search?adv=titles&ty=68&co=3&st=2&so=date (Drama+Korea+Upcoming+sort by date)
+app.get('/api/mdl/upcoming-titles', (_req, res) => {
+  try {
+    const cached = getMdlCache<{ map: Record<string, string> }>(MDL_UPCOMING_TITLE_MAP_KEY)
+    if (!cached) return res.json({ ok: true, map: {}, cached: false })
+    res.json({
+      ok: true,
+      map: cached.data.map,
+      count: Object.keys(cached.data.map).length,
+      cached: true,
+      fetchedAt: cached.fetchedAt,
+      expiresAt: cached.expiresAt,
+    })
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+app.post('/api/mdl/upcoming-titles/refresh', async (req, res) => {
+  try {
+    const force = req.body?.force === true
+    if (!force) {
+      const cached = getMdlCache<{ map: Record<string, string> }>(MDL_UPCOMING_TITLE_MAP_KEY)
+      if (cached) {
+        return res.json({
+          ok: true,
+          map: cached.data.map,
+          count: Object.keys(cached.data.map).length,
+          cached: true,
+          fetchedAt: cached.fetchedAt,
+          expiresAt: cached.expiresAt,
+        })
+      }
+    }
+
+    console.log('[MDL-upcoming-titles] 새 크롤링 시작 (~2분)...')
+    const t0 = Date.now()
+    const { crawlMdlUpcomingTitleMap } = await import('./crawlers/mdl.js')
+    const map = await crawlMdlUpcomingTitleMap(30)
+    saveCrawlLog('mdl-upcoming-titles', Object.keys(map).length, Object.keys(map).length > 0 ? 'success' : 'failed')
+    if (Object.keys(map).length === 0) {
+      return res.status(503).json({ ok: false, error: 'MDL Upcoming 매핑 0개' })
+    }
+    const ttl = setMdlCache(MDL_UPCOMING_TITLE_MAP_KEY, { map }, MDL_UPCOMING_TITLE_MAP_TTL_SEC)
+    console.log(`[MDL-upcoming-titles] 완료 (${((Date.now() - t0) / 1000).toFixed(1)}s) - ${Object.keys(map).length}개 매핑`)
+
+    res.json({
+      ok: true,
+      map,
+      count: Object.keys(map).length,
+      cached: false,
+      fetchedAt: ttl.fetchedAt,
+      expiresAt: ttl.expiresAt,
+    })
+  } catch (e) {
+    console.error('[MDL-upcoming-titles] 오류:', e)
+    saveCrawlLog('mdl-upcoming-titles', 0, 'failed', String(e))
     res.status(500).json({ ok: false, error: String(e) })
   }
 })
@@ -1194,6 +976,78 @@ app.post('/api/tiktok/refresh', async (req, res) => {
   } catch (e) {
     console.error('[TikTok] 오류:', e)
     saveCrawlLog('tiktok', 0, 'failed', String(e))
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+// ============================================================
+// Instagram SNS 버즈 분석 (메모리 캐시 — 사용자 클릭 시 1회 크롤)
+//   * 쿠키 파일 (~/Desktop/secret/001/instagram-cookies.json) 필요
+//   * 카테고리당 max 2 Reel, 첫 차단 감지 시 30분 lockout
+// ============================================================
+const IG_CACHE_KEY = 'instagram_buzz_v1'
+const IG_CACHE_TTL_SEC = 12 * 3600  // 12시간 (2026-05-08: 사용자 IP throttle 부담 ↓)
+
+app.get('/api/instagram', (_req, res) => {
+  try {
+    const cached = getMdlCache<InstagramSummary>(IG_CACHE_KEY)
+    if (!cached) return res.json({ ok: true, summary: null, cached: false })
+    res.json({
+      ok: true,
+      summary: { ...cached.data, cached: true, fetchedAt: cached.fetchedAt, expiresAt: cached.expiresAt },
+      cached: true,
+    })
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) })
+  }
+})
+
+app.post('/api/instagram/refresh', async (req, res) => {
+  try {
+    const force = req.body?.force === true
+    if (!force) {
+      const cached = getMdlCache<InstagramSummary>(IG_CACHE_KEY)
+      if (cached) {
+        return res.json({
+          ok: true,
+          summary: { ...cached.data, cached: true, fetchedAt: cached.fetchedAt, expiresAt: cached.expiresAt },
+          cached: true,
+        })
+      }
+    }
+
+    console.log('[Instagram] 새 크롤링 시작...')
+    const t0 = Date.now()
+    const { buildInstagramSummary } = await import('./pipeline/instagramAnalysis.js')
+    const summary = await buildInstagramSummary()
+    saveCrawlLog('instagram', summary.totalReels, summary.totalReels > 0 ? 'success' : 'failed')
+    if (summary.totalReels === 0) {
+      // 정보성 첫 줄(공개 태그 표면…) 건너뛰고 실제 사유 픽
+      const actionable = summary.warnings.find(
+        (w) => /쿠키|lockout|로그인|wall|navigation|예외/.test(w),
+      )
+      const reason = actionable
+        ?? summary.warnings[summary.warnings.length - 1]
+        ?? 'Instagram 크롤링 결과 0개 (쿠키 만료 또는 anti-bot 차단 가능성)'
+      return res.status(503).json({ ok: false, error: reason, summary })
+    }
+    // 댓글 한국어 번역 (Groq AI, 캐시됨) — 캐시 저장 전에 실행
+    try {
+      const { translateInstagramSummaryInPlace } = await import('./pipeline/translateInstagram.js')
+      await translateInstagramSummaryInPlace(summary)
+    } catch (e) {
+      console.warn(`[Instagram] 번역 실패 (영문 그대로): ${(e as Error).message}`)
+    }
+    const ttl = setMdlCache(IG_CACHE_KEY, summary, IG_CACHE_TTL_SEC)
+    console.log(`[Instagram] 완료 (${((Date.now() - t0) / 1000).toFixed(1)}s) - ${summary.totalReels}개 Reel, 댓글 ${summary.totalComments}개`)
+    res.json({
+      ok: true,
+      summary: { ...summary, cached: false, fetchedAt: ttl.fetchedAt, expiresAt: ttl.expiresAt },
+      cached: false,
+    })
+  } catch (e) {
+    console.error('[Instagram] 오류:', e)
+    saveCrawlLog('instagram', 0, 'failed', String(e))
     res.status(500).json({ ok: false, error: String(e) })
   }
 })

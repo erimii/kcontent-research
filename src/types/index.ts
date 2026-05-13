@@ -630,4 +630,140 @@ export interface TikTokSummary {
   contentGroups: TikTokContentGroup[]     // 작품별 화제도 6개
   trendingSounds: TikTokTrendingSound[]   // 사운드 재사용 TOP 8
   topCreators: TikTokTopCreator[]         // 크리에이터 랭킹 TOP 8
+  diagnostics?: TikTokDiagnostics         // 깔때기 손실 추적 (optional — 구버전 캐시 호환)
+}
+
+export interface TikTokDiagnostics {
+  keywordResults: { keyword: string; ok: boolean; rawCount: number }[]  // 키워드별 검색 성공·아이템 수
+  stageDrops: {
+    rawTotal: number          // 검색 raw 총합
+    afterDedup: number        // id dedup 후
+    afterDateFilter: number   // 60일 필터 후
+    afterFilter1: number      // 채널·1차 K-content 필터 후
+    afterFilter2: number      // 2차 K-content 필터 (description+sound) 후
+    final: number             // topN 컷 후
+  }
+  appliedDateWindowDays: number
+}
+
+// ============================================================
+// Instagram SNS 버즈 (Reel 기반)
+//   * 공개 hashtag 페이지 + Reel 상세 페이지를 사용자 cookie 세션으로 Playwright 탐색
+//   * 카테고리당 max 2개 Reel (봇 탐지 리스크 완화)
+// ============================================================
+
+export type InstagramChannelType = 'official' | 'creator' | 'community'
+export type InstagramCategory = 'kdrama' | 'kmovie' | 'kvariety'
+
+export interface InstagramAuthor {
+  username: string                // @handle (URL의 첫 path segment 또는 카드 첫 줄)
+  displayName?: string
+  avatar?: string
+  verified?: boolean
+}
+
+export interface InstagramComment {
+  text: string
+  textKo?: string
+  author: string
+  approxLikes: number             // visible like 수가 안정적이지 않아 fallback 점수 (40/32/24…)
+}
+
+export interface InstagramReel {
+  id: string                      // shortcode (URL 마지막 segment)
+  url: string
+  caption: string
+  // ── 카운트 필드 (2026-05-08: 분리) ──
+  views: number                   // [deprecated] 구버전 호환용. likeCount와 동일값.
+  likeCount: number               // og:description "X likes" 파싱
+  commentCount: number            // og:description "Y comments" 파싱 (실제 총 댓글 수)
+  viewCount?: number              // best-effort (JSON-LD interactionStatistic.WatchAction). 추출 실패 시 undefined
+  publishedAt?: string
+  author: InstagramAuthor
+  hashtags: string[]
+  channelType: InstagramChannelType
+  category: InstagramCategory
+  tag: string                     // 진입한 hashtag (디버깅·필터)
+  comments: InstagramComment[]    // 본문에서 추출된 발췌 댓글 (≤3, MAX_COMMENT_LINES_TO_KEEP)
+  capturePath?: string            // 정적 경로 ("/static/captures/instagram-….png")
+  // ── 분석 단계에서 enrich되는 필드 (모두 optional — 구버전 캐시 호환) ──
+  extractedTitle?: string         // null 매칭이면 "작품 미확인 릴스"로 분류
+  reactionTypes?: string[]        // ['커플 케미형', '로맨스 설정형'] — 최대 2개
+  shortCaption?: string           // 첫 문장 또는 ≤120자 단축
+  keyPhrase?: string              // 카드 헤드라인 ("…" 따옴표 안)
+  // ── Stage 3 deep-crawl 결과 (top 3 reel만 채워짐, 2026-05-08 #4 4-stage funnel) ──
+  deepComments?: InstagramComment[]               // GraphQL intercept로 받은 ~50개
+  deepCommentSampledAt?: string                    // ISO timestamp
+  deepCommentTotalFetched?: number                 // 실측 (50 미달 가능)
+  reactionSummary?: string[]                       // 한국어 2~3 bullet 자동 요약
+  representativeComments?: InstagramComment[]      // deep 중 likes top 3
+  isTop10?: boolean                                // 글로벌 top 10 마킹
+  isTop3Deep?: boolean                             // deep crawl 대상 마킹
+}
+
+export interface InstagramTopComment {
+  text: string
+  textKo?: string
+  author: string
+  approxLikes: number
+  reelId: string
+  reelUrl: string
+  reelCaption: string
+}
+
+export interface InstagramContentGroup {
+  title: string
+  reelCount: number
+  totalViews: number
+  totalComments: number
+  topReelId: string
+  topReelUrl: string
+  topReelCaption: string
+  topReelCapturePath?: string
+  topComments: InstagramTopComment[]
+  matchSource: 'known' | 'caption-pattern' | 'explicit-pattern' | 'unknown'
+  reactionTypes?: string[]            // 그룹 대표 반응 유형 (소속 reel들 union)
+  discoveredTags?: string[]           // 이 그룹에 속한 reel들이 발견된 hashtag (max 4개)
+  // ── 2026-05-12 뾰족화 추가 (optional) ──
+  reactionMix?: { label: string; count: number; pct: number }[]   // 작품 안에서 각 반응의 비율
+  dominantReaction?: { label: string; pct: number }                // 최상위 반응 (UI 헤드라인용)
+  engagementClass?: 'passive' | 'active' | 'mid'                   // comment/view 비율 기반
+}
+
+// ── 2026-05-12 신규: 뾰족한 인사이트용 분석 결과 타입 ──
+export interface InstagramPolarizationSignal {
+  reelId: string
+  polarized: boolean
+  likesVariance: number                        // log 스케일 normalized 분산
+  agreementCount: number                       // 긍정 표현 댓글 수
+  disagreementCount: number                    // 부정 표현 댓글 수
+  topDisagreement?: { text: string; textKo?: string; approxLikes: number }
+}
+
+export interface InstagramEmergingTrend {
+  title: string
+  candidateCount: number                       // candidatePool 내 등장 reel 수
+  sampleReelUrl?: string
+  sampleCaption?: string
+}
+
+export interface InstagramSummary {
+  fetchedAt: string
+  cached: boolean
+  expiresAt: string
+  totalReels: number
+  totalComments: number
+  searchedTags: string[]
+  topReels: InstagramReel[]            // 글로벌 top 10 (Stage 2 결과)
+  contentGroups: InstagramContentGroup[]
+  topComments: InstagramTopComment[]
+  warnings: string[]                   // 카드 안내 텍스트 (예: "공개 인기 태그 표면 기준")
+  // ── 신규 분석 필드 (optional — 구버전 캐시 호환) ──
+  reactionPoints?: { label: string; count: number; sampleText?: string }[]
+  repeatedPhrases?: { phrase: string; count: number }[]
+  // ── 4-stage funnel (2026-05-08 #4) ──
+  candidatePool?: InstagramReel[]      // Stage 1 통과 전체 (~30~55) — 🏆 작품 언급 순위 집계용
+  // ── 2026-05-12 뾰족화 추가 (모두 optional, 구버전 캐시 호환) ──
+  polarizationSignals?: InstagramPolarizationSignal[]      // top 3 reel 양극화 (deep crawl된 것만)
+  emergingTrends?: InstagramEmergingTrend[]                // candidatePool 미시 트렌드
 }

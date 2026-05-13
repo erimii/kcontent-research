@@ -687,19 +687,24 @@ body {
 /* ============================================================ */
 /* Markdown 렌더링 (도움말 페이지)                              */
 /* ============================================================ */
-.markdown-body { color: var(--text-primary); }
-.markdown-body h1 { font-size: 22px; font-weight: 800; margin: 0 0 16px; color: var(--text-primary); }
-.markdown-body h2 { font-size: 17px; font-weight: 700; margin: 28px 0 10px; padding-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.06); color: var(--text-primary); }
-.markdown-body h3 { font-size: 14px; font-weight: 700; margin: 18px 0 8px; color: var(--text-primary); }
-.markdown-body p { margin: 0 0 12px; line-height: 1.75; color: var(--text-primary); }
+.markdown-body { color: var(--text-primary); font-size: 15px; line-height: 1.8; }
+.markdown-body h1 { font-size: 32px; font-weight: 800; margin: 0 0 24px; color: var(--text-primary); letter-spacing: -0.02em; }
+.markdown-body h2 { font-size: 24px; font-weight: 800; margin: 44px 0 16px; padding: 10px 0 10px 14px; border-left: 4px solid #FFC857; color: #FFC857; letter-spacing: -0.01em; }
+.markdown-body h3 { font-size: 21px; font-weight: 800; margin: 40px 0 16px; padding: 12px 16px; background: linear-gradient(90deg, rgba(255,200,87,0.14), rgba(255,200,87,0.02)); border-left: 5px solid #FFC857; border-radius: 0 8px 8px 0; color: #fff; letter-spacing: -0.01em; }
+.markdown-body h4 { font-size: 16px; font-weight: 700; margin: 20px 0 8px; color: #FFC857; }
+.markdown-body p { margin: 0 0 14px; line-height: 1.85; color: var(--text-primary); font-size: 15px; }
+.markdown-body p > strong:first-child { display: inline-block; font-size: 15.5px; color: #FFC857; margin-bottom: 2px; }
 .markdown-body strong { color: var(--text-primary); font-weight: 700; }
 .markdown-body em { color: var(--text-primary); }
-.markdown-body code { background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px; font-family: 'SF Mono', Consolas, monospace; font-size: 0.9em; color: #fbbf24; }
-.markdown-body hr { border: 0; border-top: 1px solid rgba(255,255,255,0.08); margin: 24px 0; }
-.markdown-body ul, .markdown-body ol { padding-left: 22px; margin: 0 0 12px; }
-.markdown-body li { margin-bottom: 4px; line-height: 1.7; }
-.markdown-body table { border-collapse: collapse; margin: 12px 0; font-size: 13px; }
-.markdown-body th, .markdown-body td { border: 1px solid rgba(255,255,255,0.08); padding: 6px 10px; text-align: left; }
-.markdown-body th { background: rgba(255,255,255,0.04); font-weight: 600; }
+.markdown-body code { background: rgba(255,200,87,0.10); padding: 2px 7px; border-radius: 4px; font-family: 'SF Mono', Consolas, monospace; font-size: 0.92em; color: #FFC857; }
+.markdown-body hr { border: 0; border-top: 1px solid rgba(255,255,255,0.10); margin: 36px 0; }
+.markdown-body ul, .markdown-body ol { padding-left: 24px; margin: 0 0 16px; }
+.markdown-body li { margin-bottom: 6px; line-height: 1.8; font-size: 15px; }
+.markdown-body li > strong { color: #FFC857; }
+.markdown-body table { border-collapse: collapse; margin: 16px 0; font-size: 14px; width: 100%; }
+.markdown-body th, .markdown-body td { border: 1px solid rgba(255,255,255,0.10); padding: 9px 14px; text-align: left; }
+.markdown-body th { background: rgba(255,200,87,0.10); font-weight: 700; color: #FFC857; }
+.markdown-body blockquote { margin: 16px 0; padding: 12px 18px; border-left: 4px solid #FFC857; background: rgba(255,200,87,0.06); border-radius: 0 6px 6px 0; }
+.markdown-body blockquote p { margin: 0; }
 .markdown-body a { color: #3b82f6; text-decoration: none; }
 .markdown-body a:hover { text-decoration: underline; }

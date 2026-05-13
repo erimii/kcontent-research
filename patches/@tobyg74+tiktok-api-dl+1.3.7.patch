@@ -41,10 +41,37 @@ index 2fb1072..ec9f890 100644
      });
  };
 diff --git a/node_modules/@tobyg74/tiktok-api-dl/lib/utils/search/videoSearch.js b/node_modules/@tobyg74/tiktok-api-dl/lib/utils/search/videoSearch.js
-index 18235e6..d26a5eb 100644
+index 18235e6..2b6377b 100644
 --- a/node_modules/@tobyg74/tiktok-api-dl/lib/utils/search/videoSearch.js
 +++ b/node_modules/@tobyg74/tiktok-api-dl/lib/utils/search/videoSearch.js
-@@ -129,12 +129,12 @@ const requestVideoSearch = async (keyword, page, cookie, proxy) => {
+@@ -10,6 +10,9 @@ const params_1 = require("../../constants/params");
+ const socks_proxy_agent_1 = require("socks-proxy-agent");
+ const https_proxy_agent_1 = require("https-proxy-agent");
+ const async_retry_1 = __importDefault(require("async-retry"));
++// PATCH (2026-05-11): X-Bogus 서명 추가 — TikTok이 unsigned /api/search/item/full 요청에 빈 응답
++const xbogus_1 = __importDefault(require("../../../helper/xbogus"));
++const PATCH_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0";
+ const SearchVideo = async (keyword, cookie, page = 1, proxy) => new Promise(async (resolve) => {
+     if (!cookie) {
+         return resolve({
+@@ -104,10 +107,14 @@ exports.SearchVideo = SearchVideo;
+ const requestVideoSearch = async (keyword, page, cookie, proxy) => {
+     return (0, async_retry_1.default)(async (bail, attempt) => {
+         try {
+-            const { data } = await (0, axios_1.default)((0, api_1._tiktokSearchVideoFull)((0, params_1._videoSearchParams)(keyword, page)), {
++            // PATCH (2026-05-11): X-Bogus 서명 추가 — 라이브러리가 search endpoint에는 서명을 안 만들어 줘서 head 키워드가 모두 빈 응답 받음
++            const baseUrl = (0, api_1._tiktokSearchVideoFull)((0, params_1._videoSearchParams)(keyword, page));
++            const xbogus = xbogus_1.default(baseUrl, PATCH_USER_AGENT);
++            const signedUrl = `${baseUrl}&X-Bogus=${encodeURIComponent(xbogus)}`;
++            const { data } = await (0, axios_1.default)(signedUrl, {
+                 method: "GET",
+                 headers: {
+-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0",
++                    "User-Agent": PATCH_USER_AGENT,
+                     cookie: typeof cookie === "object"
+                         ? cookie.map((v) => `${v.name}=${v.value}`).join("; ")
+                         : cookie
+@@ -129,12 +136,12 @@ const requestVideoSearch = async (keyword, page, cookie, proxy) => {
              throw error;
          }
      }, {

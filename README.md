@@ -301,30 +301,30 @@ TOP5 포스트마다:
 
 ### 대시보드 카드 구성 (위에서 아래로)
 
-목적 정합성 평가를 거쳐 **7개 카드**로 압축. 헤더는 핵심 메타데이터(K-콘텐츠 비율·소스 한 줄) inline 표시:
+8개 카드로 구성. 카드별 가로 막대 차트·작품별 한국 원제·소스 한 줄 메타데이터 inline 표시:
 
-1. **▶️ SNS 버즈 분석 (YouTube)** — 영상 30개 + 댓글 ~900개. **🏆 작품별 화제도 6개** (작품 단위 집계 + 좋아요 TOP 2 한국어 번역 댓글) → **인기 콘텐츠 TOP 30** (engagement score 1·2·5 정렬, 썸네일·views·likes·comments) → 채널 타입·콘텐츠 유형 분포
-2. **🧠 한국어 핵심 인사이트** — 4개 카테고리 자연어 (트렌드 요약 / 팬 반응 / 소비 패턴 / 확장 흐름)
-3. **🔥 콘텐츠 트렌드** — 작품·배우·키워드 빈도 (3-칼럼)
-4. **📺 MDL Top Airing K-드라마 TOP 5** — 포스터/평점/평점 분포/댓글 감정/리뷰 쟁점 클러스터/대표 리뷰 + **🆕 시청자 즉각 반응** (코멘트 별도 분석 + 좋아요 TOP 5 한국어 번역). **⚠ 평가 분열** 배지 자동
-5. **🔥 Reddit 토론 TOP 5** — 댓글 합계 기준 가장 활발한 콘텐츠 클러스터
-6. **🔬 TOP5 딥 분석** — 인기 포스트별 인기 사유 / 감정 / 의견 유형 / 쟁점 클러스터
-7. **🌎 북미 트렌드 분석 (Google Trends · US)** — K-콘텐츠 우선 / 비교 인사이트(**오늘 활성 이벤트 칩 + K 활용 시사점 카드 포함**) / 거시(접힘 default, 항목별 이벤트 칩) 순. 보조 컨텍스트로 하단 배치
+1. **상단 헤더** — 리포트 날짜 + 5소스 표본 수 (Reddit·MDL·YouTube·Instagram·GTrends)
+2. **🔥 K-콘텐츠 트렌드 분석 (Reddit)** ⭐ 핵심 카드 — 작품·배우·키워드 빈도를 **가로 막대 그래프**로 시각화 + 그 아래 한국어 핵심 인사이트 4개 카테고리 (Reddit 4개 서브레딧 기반)
+3. **🔬 Reddit TOP 5 딥 분석** — 인기 포스트 5개 + 토론 주제 칩 + 감정 분포 + Reddit 링크 + i.redd.it 이미지
+4. **📺 MDL Top Airing K-드라마 TOP 5** — 포스터/평점/평점 분포/댓글 감정/리뷰 쟁점 클러스터/대표 리뷰 + **시청자 즉각 반응** (코멘트 별도 분석 + 좋아요 TOP 5 한국어 번역). **⚡ 평가 분열** 배지 자동
+5. **▶️ YouTube 파헤치기** — 영상 30개 + 댓글 ~3,000개. **🏆 작품별 화제도 6개** (작품 단위 집계 + 한국 원제 + 좋아요 TOP 2 한국어 번역 댓글) → **인기 콘텐츠 TOP 30** (engagement score 정렬, 썸네일·views·likes·comments)
+6. **🎵 TikTok 파헤치기** (⚠ 일시 차단) — TikTok 측 anti-bot 정책으로 자동 크롤 정지. 카드 헤더에 차단 배지 표시 + "수동 시도" 버튼 (확인 다이얼로그 경유)
+7. **📷 Instagram 파헤치기** — Reels 화제도 (작품별 + 한국 원제) + 댓글 반응 분석 (Groq 3-라벨: 핵심 반응 / 미세 신호 / 특정 표현, 영문 인용구 포함) + Instagram 페이지 캡처 이미지
+8. **🌎 북미 트렌드 분석 (Google Trends · US)** — K-콘텐츠 우선 / 비교 인사이트(오늘 활성 이벤트 칩 + K 활용 시사점 카드 포함) / 거시(접힘 default) 순. K-콘텐츠 매칭 0건이면 "비-K 주도하는 날" 표시
 
-**제거된 섹션** (사용자 목적 정합성 낮아 정리): 통계 stat grid · 감정/행동 트렌드 (3-칼럼) · 서브레딧별 특성 · 자동 인사이트(영문 legacy) · 감정별 주요 논의 주제 (키워드 기반 한계로 의미 약함)
+**제거된 섹션** (사용자 목적 정합성 낮아 정리): 통계 stat grid · 영문 legacy 인사이트 · 감정/행동 3-칼럼 · 콘텐츠 트렌드 액션 박스 · Reddit 반응 패턴 · 사이드바 콘텐츠 랭킹/Reddit 포스트/검색 메뉴
 
 ### 더보기/접기 토글
 
 각 섹션은 **상단 일부만** 초기 노출(2~5개)하고 "더보기 (+N) ▼" 버튼으로 나머지 확장. 다시 누르면 "접기 ▲". 스크롤 길이 약 50% 단축. 적용 섹션: 한국어 핵심 인사이트 / Reddit 토론 TOP / MDL 드라마 / TOP5 딥 분석 / SNS 버즈 TOP 영상 / GTrends 거시 트렌드.
 
-### 콘텐츠 랭킹 페이지
+### 사이드바 메뉴 (6개)
 
-3개 탭으로 데이터 소스별 랭킹 표 제공:
-- **🔥 Reddit** — `topContents` 콘텐츠 클러스터 (제목·타입·소스·플랫폼·배우·점수)
-- **📺 MDL** — Top Airing K-드라마 5개 (포스터·연도·리뷰 수·댓글 감정·평점, MDL 자체 Top Airing 순서 유지)
-- **▶️ YouTube** — 영상 30개 (썸네일·제목·채널·유형·업로드·조회수, 채널 타입 ✓공식 / 🎤인플루언서 배지)
+목적 중복·사용 빈도 낮은 메뉴 정리하여 9개 → 6개로 축소: **대시보드 / 명작 랭킹 / 크롤링 / 스케줄 / 아카이브 / 도움말**. 제거된 메뉴: 콘텐츠 랭킹 (대시보드 카드와 중복) · Reddit 포스트 (대시보드 TOP 5와 중복) · 검색 (사용 빈도 낮음).
 
-페이지 진입 시 MDL/YouTube 캐시 prefetch 자동 발동, 비동기 완료 후 즉시 재렌더.
+### 도움말 페이지 ([docs/dashboard-guide.md](docs/dashboard-guide.md))
+
+비전공자용 가이드로 전면 재작성 (271줄). 각 대시보드 카드별 4-블록 형식 — 🏷 **무엇을 보여주나요?** / 📡 **어디서 가져왔나요?** / 👀 **어떻게 보면 되나요?** / 💡 **알아두면 좋은 점**. 친근한 존댓말, 전문 용어(engagement score / API endpoint / TTL 등) 회피. 마크다운 → marked.js → HTML 렌더, CSS 위계 강화 (h1 32px / h2 24px 골드 / h3 21px 골드 박스 배경) — 소제목 위계가 한눈에 구분.
 
 ### 명작 랭킹 페이지 (MDL 글로벌 인기 K드라마)
 
@@ -355,9 +355,23 @@ TOP5 포스트마다:
 - MDL · GTrends · YouTube 카드에 "캐시 무시 강제 새로고침" sub-옵션
 - 단일 "크롤링 시작" 버튼 → `Promise.allSettled`로 **병렬 실행** (한쪽 실패 영향 격리)
 
-### 뉴스레터 ([src/server.ts](src/server.ts) `/api/newsletter/:id`)
+### 뉴스레터 v2 ([src/pipeline/newsletter.ts](src/pipeline/newsletter.ts) → `/api/newsletter/:id`)
 
-이메일 친화 `<table>` 레이아웃으로 대시보드 핵심을 압축한 정적 HTML — 헤드라인 / 한국어 인사이트 5개 / Reddit 토론 TOP 3 (쟁점 클러스터 1개씩) / **YouTube SNS 버즈** + **MDL TOP 3** + **GTrends 3단계** (캐시 자동 합성).
+내부 팀 audience를 위한 이메일 친화 HTML 리포트 — 365줄 inline HTML을 별도 모듈로 분리. 800px 고정 너비 `<table>` 레이아웃, 브랜드 골드(#FFC857) 그라데이션, 카드별 통일된 골드 좌측 보더.
+
+**섹션 구성 (위→아래)**:
+1. 헤더 — 날짜·표본 수, 브랜드 그라데이션 배너
+2. **소스별 TOP 1 매트릭스** — Reddit·MDL·YouTube·Instagram·GTrends 5소스 각 1행
+3. **작품별 화제도 (Reddit 기반)** — 상위 5작품 가로 막대 차트
+4. **Reddit TOP 3 딥 분석** — 포스트 카드 (100px 좌측 i.redd.it 썸네일 + 우측 본문·토론 주제·Reddit 링크)
+5. **MDL Top Airing TOP 2** — 포스터(80px) + 평점·리뷰 수·대표 리뷰 한국어 번역
+6. **YouTube TOP 2** — 썸네일(120px) + 작품 한국 원제 + 한국어 번역 댓글 1개
+7. **Instagram TOP 2** — Reel 캡처(100px) + 작품 한국 원제 + Groq 3-라벨 반응 요약
+8. 푸터 — 자동 발송 안내
+
+**한국 원제 매핑**: 정적 사전 300+ ([public/static/korean-titles.js](public/static/korean-titles.js)) + MDL Popular nativeTitle 자동 수집 (TTL 7일) + MDL Upcoming 자동 수집 (TTL 24h, `mydramalist.com/search?adv=titles&ty=68&co=3&st=2&so=date`) 3개 소스 머지.
+
+**포터블 export**: `curl -sL http://localhost:3366/api/newsletter > out.html` 후 base64 인라인 변환 시 외부 의존성 0의 단일 HTML 파일 → 이메일 첨부로 팀원 전달 가능.
 
 ---
 
@@ -372,6 +386,10 @@ TOP5 포스트마다:
 | POST | `/api/mdl/refresh` | MDL Playwright 크롤링 + 분석 + 캐시 저장 (`{force:true}` 시 캐시 무시) |
 | GET | `/api/mdl/popular` | MDL Popular/TopKorea 제목 사전 캐시 조회 (사전 매칭 자동 갱신용) |
 | POST | `/api/mdl/popular/refresh` | Popular + TopKorea 페이지 크롤 → 제목 합집합 ~100개 (TTL 24h) |
+| GET | `/api/mdl/native-titles` | Popular TOP 50 영문→한국 원제 매핑 캐시 조회 (부팅 시 프론트가 자동 머지) |
+| POST | `/api/mdl/native-titles/refresh` | Popular TOP 50 detail 페이지 방문해 nativeTitle 자동 수집 (~2-4분, TTL 7일) |
+| GET | `/api/mdl/upcoming-titles` | Upcoming 미방영 K-드라마 영문→한국 원제 매핑 캐시 조회 |
+| POST | `/api/mdl/upcoming-titles/refresh` | Upcoming 30개 detail 페이지 방문해 nativeTitle 자동 수집 (TTL 24h) |
 | GET | `/api/mdl/top-ranking` | 명작 랭킹 (MDL Popular TOP 50 K드라마) 캐시 조회 |
 | POST | `/api/mdl/top-ranking/refresh` | `/shows/popular` 5페이지 크롤 → TOP 50 (TTL 30일, `{force:true}` 시 캐시 무시) |
 | GET | `/api/mdl/drama/:slug` | 단일 작품 lazy 분석 캐시 조회 |
@@ -390,7 +408,6 @@ TOP5 포스트마다:
 | DELETE | `/api/reports/:id` | 리포트 삭제 |
 | GET | `/api/newsletter` / `/api/newsletter/:id` | 뉴스레터 HTML |
 | GET | `/api/logs` | 크롤링 이력 |
-| GET | `/api/search?q=&konly=` | 콘텐츠 검색 |
 | GET | `/api/schedule` | 스케줄 정보 |
 | POST | `/api/schedule/trigger` | 스케줄 수동 트리거 |
 | GET | `/api/stats` | 시스템 통계 |
@@ -430,6 +447,7 @@ src/
 │   ├── translateTiktok.ts ← TikTok 댓글 Groq AI 한국어 번역 (작품별 카드)
 │   ├── instagramAnalysis.ts ← Instagram 작품 추출 + 반응 유형 분류 + 반복 phrase + 작품별 화제도 + Groq 자동 요약
 │   ├── translateInstagram.ts ← Instagram 댓글 Groq AI 한국어 번역 (작품별 카드 + representativeComments)
+│   ├── newsletter.ts      ← 뉴스레터 v2 빌더 (800px, 5소스 매트릭스, 한국 원제 머지)
 │   ├── normalizer.ts      ← 정규화·드라마 제목 추출
 │   ├── clusterer.ts       ← Jaccard/Levenshtein 타이틀 클러스터링
 │   ├── scorer.ts          ← 종합 점수 산출
@@ -460,6 +478,8 @@ data/k-content.db
                       + YouTube SNS 버즈 (key='youtube_buzz_v3', TTL 3h, contentGroups + 한국어 번역 포함)
                       + TikTok SNS 버즈 (key='tiktok_buzz_v1', TTL 3h, 작품·사운드·크리에이터 + 한국어 번역)
                       + Instagram SNS 버즈 (key='instagram_buzz_v1', TTL 12h, 4-stage funnel + 작품별 화제도 + deep 댓글 ~50개 × top 3 + 한국어 번역)
+                      + MDL Popular 영문→한국 원제 매핑 (key='mdl_native_title_map_v1', TTL 7일, ~50개 자동)
+                      + MDL Upcoming 영문→한국 원제 매핑 (key='mdl_upcoming_title_map_v1', TTL 24h, 미방영 신작 대응)
 └── translation_cache - 영문 → 한국어 번역 (Groq, 텍스트 해시 키, 영구)
 ```
 

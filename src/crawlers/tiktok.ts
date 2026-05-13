@@ -9,7 +9,7 @@ import os from 'os'
 import path from 'path'
 import { KNOWN_ACTORS_STATIC, KNOWN_DRAMAS_STATIC } from '../data/known-dramas-static.js'
 import type {
-  TikTokVideo, TikTokComment, TikTokAuthor, TikTokSound, TikTokChannelType,
+  TikTokVideo, TikTokComment, TikTokAuthor, TikTokSound, TikTokChannelType, TikTokDiagnostics,
 } from '../types/index.js'
 
 // ── 검색 키워드 (단일 영문 단어만 — 띄어쓰기는 라이브러리 retry 누적으로 매우 느려짐) ──
@@ -60,7 +60,7 @@ const CREATOR_PATTERNS = [
   /\bkpop (insider|now|news|review)\b/i,
 ]
 
-function classifyChannelType(nickname: string, uniqueId: string, signature: string = ''): TikTokChannelType {
+export function classifyChannelType(nickname: string, uniqueId: string, signature: string = ''): TikTokChannelType {
   const text = `${nickname} ${uniqueId} ${signature}`
   if (OFFICIAL_NICK_PATTERNS.some((re) => re.test(text))) return 'official'
   if (CREATOR_PATTERNS.some((re) => re.test(text))) return 'creator'
@@ -89,7 +89,7 @@ const NON_NA_SCRIPT_RE = /[ऀ-ॿ؀-ۿЀ-ӿ฀-๿]/  // Devanagari + Arabic + 
 const VIETNAMESE_RE = /[đĐơƠưƯấầẩẫậắằẳẵặếềểễệốồổỗộớờởỡợứừửữựýỳỷỹỵ]/
 const NON_NA_LATIN_WORDS_RE = /\b(bhai|yaar|matlab|achha|kya hai|mera|hamara|tumhara|bik gaya|ek number|talaga|naman po|phim|hàn quốc|không|được|người|nhất|mong|mng|cùng|mọi|đẹp|nhiều|cũng|biết|tất cả)\b/i
 const HINDI_INTERMIX_RE = /\b(bhai|yaar)\b/i
-const NON_NA_REGIONAL_OFFICIAL_RE = /\b(philippines|filipino|india|indonesia|vietnam|malaysia|thailand|brasil|brazil|brasileir|latino|latina|español|espanol|deutschland|polska|t[üu]rkiye|t[üu]rkce|arabia|arabic)\b/i
+export const NON_NA_REGIONAL_OFFICIAL_RE = /\b(philippines|filipino|india|indonesia|vietnam|malaysia|thailand|brasil|brazil|brasileir|latino|latina|español|espanol|deutschland|polska|t[üu]rkiye|t[üu]rkce|arabia|arabic)\b/i
 
 // ── K-content 마커 ────────────────────────────────────────
 const K_CONTENT_KEYWORDS = [
@@ -104,7 +104,7 @@ const HANGUL_RE = /[가-힣]/
 const KNOWN_ACTOR_LOWER = new Set(KNOWN_ACTORS_STATIC.map((s) => s.toLowerCase()))
 const KNOWN_DRAMA_LOWER = new Set(KNOWN_DRAMAS_STATIC.map((s) => s.toLowerCase()))
 
-function hasKContentMarker(caption: string, channelMeta: string, hashtags: string[], soundTitle: string = ''): boolean {
+export function hasKContentMarker(caption: string, channelMeta: string, hashtags: string[], soundTitle: string = ''): boolean {
   const text = `${caption}`
   const fullText = `${caption} ${channelMeta} ${soundTitle}`
   const lowerFull = fullText.toLowerCase()
@@ -138,14 +138,14 @@ const REACTION_REVIEW_CAPTION = /\b(reaction|reacting|first time watching|review
 // K-content 해시태그 (caption에 명시되어 있으면 community도 통과)
 const K_HASHTAG_RE = /^#?k(drama|orean|netflix|content|wave|hallyu|variety)/i
 
-function extractHashtags(caption: string): string[] {
+export function extractHashtags(caption: string): string[] {
   return (caption.match(/#[\w가-힣]+/g) || []).map((s) => s.toLowerCase())
 }
 
 // ── 메인 크롤러 ───────────────────────────────────────────
 export async function crawlTiktokBuzz(
   options: { keywords?: string[]; perKeywordLimit?: number; topN?: number; commentsPerVideo?: number } = {}
-): Promise<{ videos: TikTokVideo[]; searchedKeywords: string[] }> {
+): Promise<{ videos: TikTokVideo[]; searchedKeywords: string[]; diagnostics: TikTokDiagnostics }> {
   const {
     keywords = KEYWORDS,
     perKeywordLimit = 20,
@@ -153,10 +153,16 @@ export async function crawlTiktokBuzz(
     commentsPerVideo = 20,
   } = options
 
+  const emptyDiag = (): TikTokDiagnostics => ({
+    keywordResults: keywords.map((k) => ({ keyword: k, ok: false, rawCount: 0 })),
+    stageDrops: { rawTotal: 0, afterDedup: 0, afterDateFilter: 0, afterFilter1: 0, afterFilter2: 0, final: 0 },
+    appliedDateWindowDays: 60,
+  })
+
   const cookies = loadTiktokCookies()
   if (!cookies) {
     console.warn('[TikTok] 쿠키 없음 → 빈 결과 반환')
-    return { videos: [], searchedKeywords: keywords }
+    return { videos: [], searchedKeywords: keywords, diagnostics: emptyDiag() }
   }
 
   // dynamic import (ESM-only)
@@ -175,8 +181,9 @@ export async function crawlTiktokBuzz(
   for (const kw of keywords) for (let p = 1; p <= PAGES_PER_KEYWORD; p++) allTasks.push({ kw, page: p })
 
   const t0 = Date.now()
-  // 단일 시도 (timeout 캡)
-  const oneAttempt = async (t: Task): Promise<{ items: any[]; ok: boolean }> => {
+  // 단일 시도 (timeout 캡) — 실패 시 reason 노출 (silent catch 해제, 2026-05-11 진단)
+  type AttemptResult = { items: any[]; ok: boolean; reason?: string; rawResponseShape?: string }
+  const oneAttempt = async (t: Task): Promise<AttemptResult> => {
     try {
       const searchPromise = Search(t.kw, { type: 'video', cookie: cookies, page: t.page })
       const timeoutPromise = new Promise((_, rej) => setTimeout(() => rej(new Error(`timeout-${PER_REQUEST_TIMEOUT_MS / 1000}s`)), PER_REQUEST_TIMEOUT_MS))
@@ -184,28 +191,38 @@ export async function crawlTiktokBuzz(
       if (r?.status === 'success' && Array.isArray(r?.result) && r.result.length > 0) {
         return { items: r.result.slice(0, perKeywordLimit), ok: true }
       }
-      return { items: [], ok: false }
-    } catch {
-      return { items: [], ok: false }
+      // 응답 받았지만 success 아님 — 응답 모양을 reason으로 노출
+      const shape = r == null
+        ? 'null/undefined'
+        : `status=${r.status ?? '<none>'} message=${(r.message ?? '').toString().slice(0, 120) || '<none>'} resultLen=${Array.isArray(r.result) ? r.result.length : (r.result === undefined ? 'undefined' : typeof r.result)}`
+      console.warn(`  [TikTok] "${t.kw}" 응답 비정상: ${shape}`)
+      return { items: [], ok: false, reason: `non-success: ${shape}`, rawResponseShape: shape }
+    } catch (e) {
+      const err = e as Error
+      const msg = `${err.name || 'Error'}: ${(err.message || String(e)).slice(0, 200)}`
+      console.warn(`  [TikTok] "${t.kw}" 예외: ${msg}`)
+      return { items: [], ok: false, reason: `exception: ${msg}` }
     }
   }
 
-  // 끈질긴 retry — backoff
-  const persistentSearch = async (t: Task): Promise<{ task: Task; items: any[]; ok: boolean; tries: number }> => {
+  // 끈질긴 retry — backoff (현재 retry 0회, reason은 마지막 시도만 보존)
+  const persistentSearch = async (t: Task): Promise<{ task: Task; items: any[]; ok: boolean; tries: number; reason?: string }> => {
     let tries = 0
+    let lastReason: string | undefined
     for (let attempt = 0; attempt <= PERSISTENT_RETRY_DELAYS.length; attempt++) {
       tries++
       const r = await oneAttempt(t)
       if (r.ok) return { task: t, items: r.items, ok: true, tries }
+      lastReason = r.reason
       if (attempt < PERSISTENT_RETRY_DELAYS.length) {
         await new Promise((res) => setTimeout(res, PERSISTENT_RETRY_DELAYS[attempt]))
       }
     }
-    return { task: t, items: [], ok: false, tries }
+    return { task: t, items: [], ok: false, tries, reason: lastReason }
   }
 
   // 동시성 낮은 batch 실행 (TikTok throttle 패턴 회피)
-  const results: { task: Task; items: any[]; ok: boolean; tries: number }[] = []
+  const results: { task: Task; items: any[]; ok: boolean; tries: number; reason?: string }[] = []
   for (let i = 0; i < allTasks.length; i += SEARCH_CONCURRENCY) {
     const slice = allTasks.slice(i, i + SEARCH_CONCURRENCY)
     const settled = await Promise.allSettled(slice.map(persistentSearch))
@@ -221,14 +238,22 @@ export async function crawlTiktokBuzz(
   const totalOk = results.filter((r) => r.ok).length
   const wallSec = ((Date.now() - t0) / 1000).toFixed(1)
   console.log(`  [TikTok] raw ${allRaw.length}개 (총 ${allTasks.length}작업, 성공 ${totalOk}, 평균 ${(totalTries / allTasks.length).toFixed(1)}회 시도, ${wallSec}s)`)
-  // 키워드별 성공/실패 요약
-  const byKw = new Map<string, { ok: number; fail: number }>()
+  // 키워드별 성공/실패 요약 + diagnostics 누적
+  const byKw = new Map<string, { ok: number; fail: number; rawCount: number; reason?: string }>()
   for (const r of results) {
-    const e = byKw.get(r.task.kw) ?? { ok: 0, fail: 0 }
-    if (r.ok) e.ok++; else e.fail++
+    const e = byKw.get(r.task.kw) ?? { ok: 0, fail: 0, rawCount: 0 }
+    if (r.ok) { e.ok++; e.rawCount += r.items.length }
+    else { e.fail++; if (!e.reason) e.reason = r.reason }
     byKw.set(r.task.kw, e)
   }
-  for (const [kw, s] of byKw) console.log(`    "${kw}": ${s.ok}/${s.ok + s.fail} 페이지 성공`)
+  for (const [kw, s] of byKw) {
+    const reasonStr = s.ok === 0 && s.reason ? ` · 실패사유: ${s.reason}` : ''
+    console.log(`    "${kw}": ${s.ok}/${s.ok + s.fail} 페이지 성공 · raw ${s.rawCount}개${reasonStr}`)
+  }
+  const keywordResults: TikTokDiagnostics['keywordResults'] = keywords.map((kw) => {
+    const s = byKw.get(kw) ?? { ok: 0, fail: 0, rawCount: 0 }
+    return { keyword: kw, ok: s.ok > 0, rawCount: s.rawCount }
+  })
 
   // 1.5. Cascade Discovery 시도 결과 (롤백):
   //   GetVideosByMusicId, GetUserPosts 모두 라이브러리에서 cookie 헤더 안 보냄 → 익명 호출
@@ -250,31 +275,18 @@ export async function crawlTiktokBuzz(
   const dedup = [...merged.values()]
   console.log(`  [TikTok] dedup 후 ${dedup.length}개 유니크 영상`)
 
-  // 2.5. 시간 필터 — 단계적 fallback (30일 → 60일 → 90일)
-  // 30일 이내가 너무 적으면(<MIN_RECENT) 60일·90일로 점진적 완화
+  // 2.5. 시간 필터 — 60일 이내 (단일 컷, fallback 없음)
   // createTime: Unix 초 단위. 메타 누락 시(0/undefined) 보수적으로 통과
-  const MIN_RECENT = 15  // 최종 topN=30 채우려면 이 정도는 있어야 안전
+  const MAX_AGE_DAYS = 60
   const NOW_SEC = Math.floor(Date.now() / 1000)
-  const filterByDays = (days: number) => {
-    const cutoff = NOW_SEC - days * 24 * 3600
-    return dedup.filter((v) => {
-      const ct = v.createTime || 0
-      if (!ct) return true
-      return ct >= cutoff
-    })
-  }
-  let recent = filterByDays(30)
-  let appliedWindow = 30
-  if (recent.length < MIN_RECENT) {
-    const r60 = filterByDays(60)
-    if (r60.length > recent.length) { recent = r60; appliedWindow = 60 }
-  }
-  if (recent.length < MIN_RECENT) {
-    const r90 = filterByDays(90)
-    if (r90.length > recent.length) { recent = r90; appliedWindow = 90 }
-  }
+  const cutoff = NOW_SEC - MAX_AGE_DAYS * 24 * 3600
+  const recent = dedup.filter((v) => {
+    const ct = v.createTime || 0
+    if (!ct) return true
+    return ct >= cutoff
+  })
   const droppedByDate = dedup.length - recent.length
-  console.log(`  [TikTok] ${appliedWindow}일 이내 필터 후 ${recent.length}개 (${droppedByDate}개 제거)${appliedWindow > 30 ? ' — 30일이 부족해 fallback 확장' : ''}`)
+  console.log(`  [TikTok] ${MAX_AGE_DAYS}일 이내 필터 후 ${recent.length}개 (${droppedByDate}개 제거)`)
 
   // 3. 1차 필터 — 채널 분류 + caption 마커 (description 없는 단계)
   const channelFiltered = recent.filter((v) => {
@@ -387,5 +399,18 @@ export async function crawlTiktokBuzz(
 
   const videos = verified.slice(0, topN)
   console.log(`  [TikTok] 총 ${videos.length}개 (댓글 합계 ${videos.reduce((s, v) => s + v.comments.length, 0)}개) · 2차 필터 ${droppedBy2nd}건 제거`)
-  return { videos, searchedKeywords: keywords }
+
+  const diagnostics: TikTokDiagnostics = {
+    keywordResults,
+    stageDrops: {
+      rawTotal: allRaw.length,
+      afterDedup: dedup.length,
+      afterDateFilter: recent.length,
+      afterFilter1: filtered1.length,
+      afterFilter2: verified.length,
+      final: videos.length,
+    },
+    appliedDateWindowDays: MAX_AGE_DAYS,
+  }
+  return { videos, searchedKeywords: keywords, diagnostics }
 }

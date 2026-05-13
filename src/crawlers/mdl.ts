@@ -432,6 +432,194 @@ export async function crawlMdlPopularRanking(topN: number = 50): Promise<Array<P
   }
 }
 
+// ── Upcoming K-드라마 메타 수집 (2026-05-13) ─────────────────────
+// 정확한 URL: /search?adv=titles&ty=68&co=3&st=2&so=date
+//   - ty=68 (Drama), co=3 (Korea), st=2 (Upcoming/Not yet aired), so=date (날짜 정렬)
+//   - country filter가 URL에 이미 들어가 있어 후처리 불필요
+export async function crawlMdlUpcoming(topN: number = 30): Promise<Array<{ slug: string; title: string; url: string }>> {
+  const browser: Browser = await chromium.launch({ headless: true })
+  try {
+    const context = await browser.newContext({
+      userAgent: UA, viewport: { width: 1280, height: 720 }, locale: 'en-US',
+    })
+    const page = await context.newPage()
+
+    const out: Array<{ slug: string; title: string; url: string }> = []
+    const seenSlugs = new Set<string>()
+
+    for (let p = 1; p <= 3; p++) {
+      const baseQs = 'adv=titles&ty=68&co=3&st=2&so=date'
+      const url = p === 1
+        ? `${BASE_URL}/search?${baseQs}`
+        : `${BASE_URL}/search?${baseQs}&page=${p}`
+      try {
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 })
+        await waitForCloudflareIfNeeded(page)
+        await page.waitForSelector('.box', { timeout: 30000 })
+      } catch (e) {
+        console.warn(`  [MDL-upcoming] page ${p} 로드 실패:`, (e as Error).message)
+        break
+      }
+
+      const items = await page.evaluate((base) => {
+        const cards = Array.from(document.querySelectorAll('.box'))
+        const result: any[] = []
+        const dramaHrefRe = /^\/\d+-/
+        for (let i = 0; i < cards.length; i++) {
+          const c = cards[i]
+          const allLinks = c.querySelectorAll('a[href]')
+          let linkEl: Element | null = null
+          for (let j = 0; j < allLinks.length; j++) {
+            const h = allLinks[j].getAttribute('href') || ''
+            if (dramaHrefRe.test(h)) { linkEl = allLinks[j]; break }
+          }
+          if (!linkEl) continue
+          const href = linkEl.getAttribute('href') || ''
+          const slug = href.replace(/^\/+/, '').split('/')[0]
+          if (!slug) continue
+          const titleText = linkEl.textContent ? linkEl.textContent.trim() : ''
+          const title = titleText || slug.replace(/^\d+-/, '').replace(/-/g, ' ')
+          result.push({ slug, title, url: base + href })
+        }
+        return result
+      }, BASE_URL)
+
+      let added = 0
+      for (const m of items) {
+        if (seenSlugs.has(m.slug)) continue
+        seenSlugs.add(m.slug)
+        out.push(m)
+        added++
+      }
+      console.log(`  [MDL-upcoming] page ${p}: +${added}개 (누적 ${out.length})`)
+      if (out.length >= topN || added === 0) break
+      await page.waitForTimeout(800)
+    }
+
+    return out.slice(0, topN)
+  } finally {
+    await browser.close()
+  }
+}
+
+// ── Upcoming K-드라마 영문→한국 원제 매핑 (2026-05-13) ─────────
+// 각 detail 페이지 방문해 nativeTitle 추출
+//   - TTL 24h (방영 임박 작품 변동 빠름 / 신작 자주 발표)
+//   - 소요: ~2분 (30개 × ~3-4초 + concurrency 3)
+export async function crawlMdlUpcomingTitleMap(topN: number = 30): Promise<Record<string, string>> {
+  const upcoming = await crawlMdlUpcoming(topN)
+  if (upcoming.length === 0) {
+    console.warn('  [MDL-upcomingMap] upcoming 비어 있음')
+    return {}
+  }
+  console.log(`  [MDL-upcomingMap] ${upcoming.length}개 미방영 드라마 detail 방문 중...`)
+  const browser: Browser = await chromium.launch({ headless: true })
+  const map: Record<string, string> = {}
+  try {
+    const context = await browser.newContext({
+      userAgent: UA, viewport: { width: 1280, height: 720 }, locale: 'en-US',
+    })
+    const CONCURRENCY = 3
+    let processed = 0, extracted = 0, failed = 0
+    const t0 = Date.now()
+    const worker = async (queue: typeof upcoming) => {
+      const page = await context.newPage()
+      try {
+        while (queue.length > 0) {
+          const drama = queue.shift()
+          if (!drama) break
+          try {
+            await page.goto(drama.url, { waitUntil: 'domcontentloaded', timeout: 30000 })
+            const nativeTitle = await extractNativeTitle(page)
+            processed++
+            if (nativeTitle && nativeTitle !== drama.title) {
+              map[drama.title.toLowerCase().trim().replace(/\s+/g, ' ')] = nativeTitle
+              extracted++
+            }
+          } catch (e) {
+            failed++
+            console.warn(`    [MDL-upcomingMap] ${drama.slug} 실패: ${(e as Error).message}`)
+          }
+          await page.waitForTimeout(250 + Math.floor(Math.random() * 250))
+        }
+      } finally {
+        await page.close().catch(() => {})
+      }
+    }
+    const queue = [...upcoming]
+    await Promise.all(Array.from({ length: CONCURRENCY }, () => worker(queue)))
+    const wallSec = ((Date.now() - t0) / 1000).toFixed(1)
+    console.log(`  [MDL-upcomingMap] 완료 (${wallSec}s) — processed ${processed} · 추출 ${extracted} · 실패 ${failed}`)
+  } finally {
+    await browser.close()
+  }
+  return map
+}
+
+// ── 영문 제목 → 한국 원제 매핑 자동 수집 (2026-05-12) ─────────────
+// Popular TOP `topN` 드라마의 detail 페이지를 방문해 nativeTitle 추출.
+// 사용 목적: K-콘텐츠 트렌드 작품 TOP에서 새 인기 작품의 한국 원제 자동 표시
+//   - 수동 등록(korean-titles.js) 의존도 ↓
+//   - TTL 7일 (인기 작품 변동 느림)
+//   - 소요: ~2-4분 (50개 × ~3-4초 + concurrency 3)
+export async function crawlMdlNativeTitleMap(topN: number = 50): Promise<Record<string, string>> {
+  // Step 1: ranking 50개 메타 확보 (slug/title/url)
+  const ranking = await crawlMdlPopularRanking(topN)
+  if (ranking.length === 0) {
+    console.warn('  [MDL-nativeMap] ranking 비어 있음')
+    return {}
+  }
+  console.log(`  [MDL-nativeMap] ${ranking.length}개 드라마 detail 페이지 방문 중...`)
+
+  // Step 2: 동시성 3으로 detail 페이지 방문
+  const browser: Browser = await chromium.launch({ headless: true })
+  const map: Record<string, string> = {}
+  try {
+    const context = await browser.newContext({
+      userAgent: UA,
+      viewport: { width: 1280, height: 720 },
+      locale: 'en-US',
+    })
+    const CONCURRENCY = 3
+    let processed = 0
+    let extracted = 0
+    let failed = 0
+    const t0 = Date.now()
+    const worker = async (queue: typeof ranking) => {
+      const page = await context.newPage()
+      try {
+        while (queue.length > 0) {
+          const drama = queue.shift()
+          if (!drama) break
+          try {
+            await page.goto(drama.url, { waitUntil: 'domcontentloaded', timeout: 30000 })
+            const nativeTitle = await extractNativeTitle(page)
+            processed++
+            if (nativeTitle && nativeTitle !== drama.title) {
+              map[drama.title.toLowerCase().trim().replace(/\s+/g, ' ')] = nativeTitle
+              extracted++
+            }
+          } catch (e) {
+            failed++
+            console.warn(`    [MDL-nativeMap] ${drama.slug} 실패: ${(e as Error).message}`)
+          }
+          // jitter 250-500ms (anti-bot 회피)
+          await page.waitForTimeout(250 + Math.floor(Math.random() * 250))
+        }
+      } finally {
+        await page.close().catch(() => {})
+      }
+    }
+    const queue = [...ranking]
+    await Promise.all(Array.from({ length: CONCURRENCY }, () => worker(queue)))
+    const wallSec = ((Date.now() - t0) / 1000).toFixed(1)
+    console.log(`  [MDL-nativeMap] 완료 (${wallSec}s) — processed ${processed} · 추출 ${extracted} · 실패 ${failed}`)
+  } finally {
+    await browser.close()
+  }
+  return map
+}
+
 // ── 단일 드라마 deep crawl (lazy 분석용) ─────────────────────
 // /shows/top 페이지에서 미리 추출한 meta를 받아 리뷰 + comments만 보강.
 export async function crawlMdlSingleDramaDeep(

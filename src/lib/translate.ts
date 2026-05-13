@@ -149,6 +149,41 @@ export async function translateOne(text: string): Promise<string | null> {
   return null
 }
 
+// ── 범용 Groq chat 호출 (번역 외 — 요약 등에 사용) ───────────────
+export async function groqChat(
+  systemPrompt: string,
+  userPrompt: string,
+  options: { temperature?: number; maxTokens?: number; timeoutMs?: number } = {},
+): Promise<string | null> {
+  const apiKey = loadGroqKey()
+  if (!apiKey) return null
+  try {
+    const res = await fetch(GROQ_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: options.temperature ?? 0.4,
+        max_tokens: options.maxTokens ?? 400,
+      }),
+      signal: AbortSignal.timeout(options.timeoutMs ?? 25000),
+    })
+    if (!res.ok) {
+      console.warn(`[groqChat] HTTP ${res.status}`)
+      return null
+    }
+    const data = await res.json() as any
+    return (data?.choices?.[0]?.message?.content || '').trim() || null
+  } catch (e) {
+    console.warn(`[groqChat] 실패:`, (e as Error).message)
+    return null
+  }
+}
+
 // ── 배치 번역 (1회 API 호출로 다수 처리) ─────────────────────
 export async function translateBatch(texts: string[]): Promise<(string | null)[]> {
   const results: (string | null)[] = new Array(texts.length).fill(null)

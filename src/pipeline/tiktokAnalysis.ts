@@ -8,9 +8,10 @@
 
 import type {
   TikTokVideo, TikTokSummary, TikTokContentGroup, TikTokTopComment,
-  TikTokTrendingSound, TikTokTopCreator, TikTokAuthor,
+  TikTokTrendingSound, TikTokTopCreator, TikTokAuthor, TikTokDiagnostics,
 } from '../types/index.js'
 import { crawlTiktokBuzz } from '../crawlers/tiktok.js'
+import { crawlTiktokWebBuzz } from '../crawlers/tiktokWeb.js'
 import { KNOWN_DRAMAS_STATIC } from '../data/known-dramas-static.js'
 
 // ── engagement score (TikTok: views/likes/comments/shares) ──
@@ -211,7 +212,11 @@ function buildTopCreators(videos: TikTokVideo[], n: number): TikTokTopCreator[] 
 }
 
 // ── DB에 저장된 영상으로 summary 생성 (cron 모드 — crawl 우회) ──
-export function buildSummaryFromVideos(videos: TikTokVideo[], searchedKeywords: string[]): TikTokSummary {
+export function buildSummaryFromVideos(
+  videos: TikTokVideo[],
+  searchedKeywords: string[],
+  diagnostics?: TikTokDiagnostics,
+): TikTokSummary {
   const totalComments = videos.reduce((s, v) => s + (v.comments?.length || 0), 0)
   const topVideos = getTopVideos(videos, 30)
   const contentGroups = buildContentGroups(videos, 6)
@@ -230,18 +235,29 @@ export function buildSummaryFromVideos(videos: TikTokVideo[], searchedKeywords: 
     contentGroups,
     trendingSounds,
     topCreators,
+    ...(diagnostics ? { diagnostics } : {}),
   }
 }
 
-// ── 메인 (legacy: crawl + 분석 합본) ─────────────────────────
+// ── 메인 — API 라이브러리 트랙 (legacy, 2026-05-07 옵션 B 시도 후 롤백) ────
+//   옵션 B(Playwright + 사용자 cookie) 시도 결과: TikTok DataDome가 stealth 플러그인 + 25개
+//   cookie + webdriver 숨김에도 captcha 페이지를 강제 → headless 트랙 0건.
+//   `crawlTiktokWebBuzz`는 보존하되 호출 안 함. 추후 Tier 3 (headful Chrome profile)
+//   도입 시 그 위에 다시 얹는 방향이 현실적.
 export async function buildTiktokSummary(
   options: { keywords?: string[]; topN?: number; commentsPerVideo?: number } = {}
 ): Promise<TikTokSummary> {
-  const { videos, searchedKeywords } = await crawlTiktokBuzz({
+  const { videos, searchedKeywords, diagnostics } = await crawlTiktokBuzz({
     keywords: options.keywords,
     perKeywordLimit: 20,
     topN: options.topN ?? 30,
     commentsPerVideo: options.commentsPerVideo ?? 20,
   })
+  return buildSummaryFromVideos(videos, searchedKeywords, diagnostics)
+}
+
+// Playwright 트랙 — 보존용. `import { buildTiktokSummaryWeb }`로 명시 호출 가능.
+export async function buildTiktokSummaryWeb(): Promise<TikTokSummary> {
+  const { videos, searchedKeywords } = await crawlTiktokWebBuzz()
   return buildSummaryFromVideos(videos, searchedKeywords)
 }

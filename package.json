@@ -5,8 +5,8 @@
   "type": "module",
   "main": "src/server.ts",
   "scripts": {
-    "start": "node --import tsx/esm src/server.ts",
-    "dev": "node --import tsx/esm --watch src/server.ts",
+    "start": "PORT=3306 node --import tsx/esm src/server.ts",
+    "dev": "PORT=3306 node --import tsx/esm --watch src/server.ts",
     "demo": "curl -s -X POST http://localhost:3000/api/crawl/demo | python3 -m json.tool",
     "postinstall": "patch-package"
   },
@@ -18,6 +18,8 @@
     "franc": "^6.2.0",
     "marked": "^18.0.2",
     "playwright": "^1.52.0",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "youtubei.js": "^17.0.1"
   },
   "devDependencies": {
