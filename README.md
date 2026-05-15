@@ -161,7 +161,7 @@ TOP5 포스트마다:
   - ① K-콘텐츠 트렌드 (북미 내) — 매칭된 K 항목 + 매칭 키워드 + 자연어 해석 + 이벤트 컨텍스트 칩
   - ② 비교 인사이트 — **오늘 활성 이벤트 칩 + K 활용 시사점 카드** + K 비율 4단계 자연어 분기 (주류/부분 진입/소수/부재)
   - ③ 북미 거시 트렌드 (접힘 default) — TOP 검색어 + 카테고리 분포 + 항목별 이벤트 칩·자연어 reason
-- **캐시**: `mdl_cache` 테이블 (key `us_daily_v1`), TTL **1시간**
+- **캐시**: `mdl_cache` 테이블 (key `us_daily_v1`), TTL **1일** (매일 09:40 자동 크롤 기반)
 
 ---
 
@@ -375,6 +375,47 @@ TOP5 포스트마다:
 
 ---
 
+## 스케줄·자동화 (2026-05-14)
+
+### 자동 일정 (월~금)
+
+| 시각 (KST) | 작업 | 소스 | 비고 |
+|-----------|------|------|------|
+| 09:40 | 일일 자동 크롤 | Reddit + MDL + Google Trends | `runDailyCrawl()` — 토·일 제외 |
+| 10:00 | 뉴스레터 자동 발송 | 최신 daily report + 캐시 4종 | Resend → MAIL_RECIPIENTS. 실패 시 5분 후 1회 재시도, 둘 다 실패하면 RESEND_REPLY_TO로 에러 메일 |
+
+### 수동 트리거 (주간 — YouTube + Instagram + TikTok)
+
+자동 cron 없음. 사이드바 **스케줄 페이지 → `주간 크롤링 실행` 버튼** 한 번에 3개 소스 병렬 크롤 (`runWeeklyCrawl()`). 권장 사용 패턴: **금요일 퇴근 전**.
+
+- TikTok은 현재 anti-bot 차단 중 → 실패 허용, UI에 ⚠ 알림
+- 기존 크롤링 페이지 체크박스 UI도 그대로 유지 (개별 선택 시)
+
+### 환경 변수 (`~/Desktop/secret/001/.env.local`)
+
+```
+RESEND_API_KEY=re_...               # Resend API 키 (필수)
+RESEND_FROM="K-Content <no-reply@your-domain>"  # 발신자 (필수)
+RESEND_REPLY_TO=your-email@example.com  # 회신·에러 알림 수신 (필수)
+MAIL_RECIPIENTS=a@x.com,b@y.com    # 팀원 명단 (콤마 구분, 필수)
+PUBLIC_NEWSLETTER_HOST=https://...  # (선택) 이메일 안 대시보드 링크 host. 없으면 localhost 그대로 → 외부에서 클릭 불가
+```
+
+### 자동 부팅 셋업 (macOS, 1회)
+
+```bash
+npm install -g pm2
+pm2 start /Users/lyerim/Downloads/webapp/ecosystem.config.cjs
+pm2 startup    # sudo 명령 1줄 출력 → 사용자가 직접 실행
+pm2 save
+```
+
+이후 컴퓨터 부팅 시 PM2가 자동 기동 → K-content 서버 자동 시작 → 평일 09:30 노트북 켜면 09:40 cron 정상 발동.
+
+`pm2 logs k-content` 로 스케줄 실행 로그 모니터링 가능.
+
+---
+
 ## API 엔드포인트
 
 | 메서드 | 경로 | 설명 |
@@ -397,19 +438,21 @@ TOP5 포스트마다:
 | GET | `/api/gtrends` | Google Trends 캐시 조회 |
 | POST | `/api/gtrends/refresh` | GTrends RSS 수집 + 카테고리 분류 + K-콘텐츠 비교 인사이트 (`{force:true}` 시 캐시 무시) |
 | GET | `/api/youtube` | YouTube 캐시 조회 |
-| POST | `/api/youtube/refresh` | YouTube `youtubei.js` 수집 + 콘텐츠 유형·반응 패턴 분석 (TTL 3h) |
+| POST | `/api/youtube/refresh` | YouTube `youtubei.js` 수집 + 콘텐츠 유형·반응 패턴 분석 (TTL 7일 — 주간 크롤 기반) |
 | GET | `/api/tiktok` | TikTok 캐시 조회 |
-| POST | `/api/tiktok/refresh` | TikTok 키워드 검색 + 작품·사운드·크리에이터 분석 (TTL 3h) — 사용자 쿠키 필수 |
+| POST | `/api/tiktok/refresh` | TikTok 키워드 검색 + 작품·사운드·크리에이터 분석 (TTL 7일 — 주간 크롤 기반, 현재 anti-bot 차단 중) — 사용자 쿠키 필수 |
 | GET | `/api/instagram` | Instagram 캐시 조회 (없으면 `summary: null`) |
-| POST | `/api/instagram/refresh` | Instagram Playwright + stealth 크롤 → 4-stage funnel + 댓글 한국어 번역 (TTL 12h) — 사용자 쿠키 필수. 결과 0건이면 503 (cache 보존, 이전 결과 fallback) |
+| POST | `/api/instagram/refresh` | Instagram Playwright + stealth 크롤 → 4-stage funnel + 댓글 한국어 번역 (TTL 7일 — 주간 크롤 기반) — 사용자 쿠키 필수. 결과 0건이면 503 (cache 보존, 이전 결과 fallback) |
 | GET | `/api/reports` | 리포트 목록 (`?type=daily\|weekly`) |
 | GET | `/api/reports/latest/:type` | 최신 리포트 |
 | GET | `/api/reports/:id` | 특정 리포트 |
 | DELETE | `/api/reports/:id` | 리포트 삭제 |
 | GET | `/api/newsletter` / `/api/newsletter/:id` | 뉴스레터 HTML |
+| GET | `/api/email/preview` | 뉴스레터 portable HTML (base64 인라인, 발송 없음) |
+| POST | `/api/email/send` | 뉴스레터 즉시 발송. `{}`=본인(self), `{useTeam:true}`=팀, `{to:[...]}`=직접, `{dryRun:true}`=echo only |
 | GET | `/api/logs` | 크롤링 이력 |
-| GET | `/api/schedule` | 스케줄 정보 |
-| POST | `/api/schedule/trigger` | 스케줄 수동 트리거 |
+| GET | `/api/schedule` | 스케줄 정보 (월~금 09:40 일일 크롤 / 10:00 발송, 주간은 수동) |
+| POST | `/api/schedule/trigger` | 스케줄 수동 트리거. `{type:"daily"}` → Reddit+MDL+GTrends · `{type:"weekly"}` → YouTube+IG+TikTok |
 | GET | `/api/stats` | 시스템 통계 |
 
 ---
@@ -433,6 +476,13 @@ src/
 │   ├── usEvents.ts             ← 미국 연간 이벤트 캘린더 50개 + K-콘텐츠 시사점 17개
 │   ├── known-dramas-static.ts  ← 한국 드라마·영화 ~150개 + 한국 배우/연기자 ~80명 (정적 사전, commit됨)
 │   └── known-dramas.ts         ← 정적 + 동적(MDL airing/popular) 사전 합집합 패턴 빌더
+├── lib/
+│   ├── email.ts           ← Resend 래퍼 + 캡처 이미지 base64 inline + 수신자 모드 (self/team/explicit)
+│   ├── dailyCrawl.ts      ← 일일 크롤 orchestrator (Reddit + MDL + Google Trends)
+│   ├── weeklyCrawl.ts     ← 주간 크롤 orchestrator (YouTube + Instagram + TikTok 병렬)
+│   ├── scheduler.ts       ← node-cron 등록 (월~금 09:40 크롤 / 10:00 발송) + 5분 1회 재시도
+│   ├── translate.ts       ← Groq Chat 래퍼 (영구 캐시)
+│   └── langDetect.ts      ← franc 기반 언어 감지
 ├── pipeline/
 │   ├── index.ts           ← 6단계 오케스트레이션
 │   ├── filter.ts          ← Stage 2 필터링
@@ -470,14 +520,14 @@ data/k-content.db
 ├── reports           - Reddit 리포트 전체 JSON 저장
 ├── content_snapshots - 콘텐츠별 점수·메타데이터 스냅샷
 ├── crawl_logs        - 크롤링 실행 이력 (Reddit + MDL)
-└── mdl_cache         - MDL Top Airing (key='top_airing_v1', TTL 6h)
+└── mdl_cache         - MDL Top Airing (key='top_airing_v1', TTL 1일 — 매일 09:40 크롤)
                       + MDL Popular/TopKorea 제목 사전 (key='mdl_popular_titles_v1', TTL 24h)
                       + 🏅 명작 랭킹 50개 (key='mdl_popular_ranking_v1', TTL 30일)
                       + 🏅 단일 작품 lazy 분석 (key='mdl_drama_<slug>_v1', TTL 30일, 영구 누적)
-                      + GTrends 북미 (key='us_daily_v1', TTL 1h)
-                      + YouTube SNS 버즈 (key='youtube_buzz_v3', TTL 3h, contentGroups + 한국어 번역 포함)
-                      + TikTok SNS 버즈 (key='tiktok_buzz_v1', TTL 3h, 작품·사운드·크리에이터 + 한국어 번역)
-                      + Instagram SNS 버즈 (key='instagram_buzz_v1', TTL 12h, 4-stage funnel + 작품별 화제도 + deep 댓글 ~50개 × top 3 + 한국어 번역)
+                      + GTrends 북미 (key='us_daily_v1', TTL 1일 — 매일 09:40 크롤)
+                      + YouTube SNS 버즈 (key='youtube_buzz_v3', TTL 7일, contentGroups + 한국어 번역. 주간 크롤 기반)
+                      + TikTok SNS 버즈 (key='tiktok_buzz_v1', TTL 7일, 작품·사운드·크리에이터 + 한국어 번역. 주간 크롤 기반)
+                      + Instagram SNS 버즈 (key='instagram_buzz_v1', TTL 7일, 4-stage funnel + 작품별 화제도 + deep 댓글 ~50개 × top 3 + 한국어 번역. 주간 크롤 기반)
                       + MDL Popular 영문→한국 원제 매핑 (key='mdl_native_title_map_v1', TTL 7일, ~50개 자동)
                       + MDL Upcoming 영문→한국 원제 매핑 (key='mdl_upcoming_title_map_v1', TTL 24h, 미방영 신작 대응)
 └── translation_cache - 영문 → 한국어 번역 (Groq, 텍스트 해시 키, 영구)

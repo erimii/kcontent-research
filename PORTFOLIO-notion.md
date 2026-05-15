@@ -5,7 +5,7 @@
 <table>
 <tr>
 <td><strong>📂 GitHub</strong></td>
-<td><a href="https://github.com/cjkdcuk/kcontent-research">cjkdcuk/kcontent-research</a></td>
+<td><a href="https://github.com/erimii/kcontent-research">erimii/kcontent-research</a></td>
 </tr>
 <tr>
 <td><strong>📅 기간</strong></td>
@@ -263,7 +263,7 @@ K-콘텐츠가 글로벌 영향력은 커졌지만, 정작 **국내 콘텐츠 �
 ```
 RESEND_API_KEY=re_...
 RESEND_FROM="K-Content <noreply@kduck.net>"
-RESEND_REPLY_TO=ask.cjkduck@gmail.com
+RESEND_REPLY_TO=your-email@example.com
 MAIL_RECIPIENTS=teammate1@example.com,teammate2@example.com
 PUBLIC_NEWSLETTER_HOST=http://10.229.55.147:3306
 GROQ_API_KEY=gsk_...
